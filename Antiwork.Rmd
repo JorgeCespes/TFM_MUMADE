@@ -1,5 +1,5 @@
 ---
-title: "salud_mental_2"
+title: "Antiwork"
 author: "Jorge Céspedes Rico"
 date: "2024-05-20"
 output: html_document
