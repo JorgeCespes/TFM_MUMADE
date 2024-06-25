@@ -1,0 +1,1341 @@
+---
+title: "unemployment_"
+author: "Jorge Céspedes Rico"
+date: "2024-05-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#CARGA DE PAQUETES
+```{r}
+library(dplyr)
+library(syuzhet)
+library(tidyverse)
+library(tidytext)
+library(NLP)
+library(tm)
+library(wordcloud)
+library(stopwords)
+library(RColorBrewer)
+library(ggplot2)
+```
+
+
+```{r}
+options(repos=list(CRAN="http://cran.rstudio.com/"))
+pk_nec = c("RedditExtractoR")
+pk_inst <- pk_nec %in% installed.packages() 
+if (length(pk_nec[!pk_inst])>0) install.packages(pk_nec[!pk_inst])
+lapply(pk_nec, require, character.only=TRUE)
+rm(pk_inst)
+rm(pk_nec)
+```
+
+```{r}
+## Descargar los hilos de la comunidad
+threads1 <- find_thread_urls(keywords = "mental health, depression, anxiety, fired, stress, psychological, job search, burnout", subreddit = "unemployment",sort_by = "new", period = "all")
+comments1 <- get_thread_content(threads1$url)
+```
+Se han obtenido en comments1$comment --> 88.938 comentarios 
+```{r}
+#Creacción de data frame con los comentarios 
+unemployment_2 <- data.frame(comments1$comments)
+View(unemployment_2)
+```
+
+Tiene 10 columnas, únicamente nos quedaremos con la columna de los comentarios y la de fecha 
+
+```{r}
+unemployment_2 <- select(comments1$comments, -1, -2, -4, -5, -6, -7, -8, -10)
+View(unemployment_2)
+max(unemployment_2$date)
+min(unemployment_2$date)
+```
+La fecha del último comentario descargado es a fecha de descarga, es decir, 16/06/2023 y la fecha más antigua es el 13/04/2023. 
+
+#LIMPIEZA DE DATOS 
+##1. Eliminación de signos y carácteres
+```{r}
+unemployment_2$comment <- gsub("@","", unemployment_2$comment)
+unemployment_2$comment <- gsub("http[^[:space:]]*", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("#", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\?", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\¿", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\!", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\¡", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\,", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\|", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("“", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("”", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("‘", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("’", "", unemployment_2$comment)
+unemployment_2$comment <- gsub(":", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\.", "", unemployment_2$comment)
+unemployment_2$comment <- gsub('"', '', unemployment_2$comment)
+unemployment_2$comment <- gsub("\\(", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\)", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\-", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\_", "",unemployment_2$comment)
+unemployment_2$comment <- gsub("\\=", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\/", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\«", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\»", "", unemployment_2$comment)
+unemployment_2$comment <- gsub("\\*", "", unemployment_2$comment)
+```
+
+##2. Eliminación de spam
+```{r}
+unemployment_2 <- unemployment_2 %>% distinct(comment, .keep_all = TRUE)
+```
+
+##3. Cración variable fecha 
+
+```{r}
+unemployment_2$date <- as.Date(unemployment_2$date)
+```
+
+```{r}
+antes <- unemployment_2 %>% filter(date< "2020-03-15")
+despues <- unemployment_2 %>% filter(date > "2020-03-16")
+```
+
+
+#ANÁLISIS DE SENTIMIENTO
+
+```{r}
+#sentimiento sobre la empresa en general 
+Sentimiento_unemployment_2 <- get_nrc_sentiment(unemployment_2$comment)
+```
+
+```{r}
+#antes del lanzamiento de las unemployment_2 Vision Pro
+Sentimiento_antes <- get_nrc_sentiment(antes$comment)
+```
+
+```{r}
+#después del lanzamiento de las unemployment_2 Vision Pro 
+Sentimiento_despues <- get_nrc_sentiment(despues$comment)
+```
+
+
+```{r}
+
+
+
+theme_elegante <- function(base_size = 10,
+                           base_family = "Raleway"
+                           )
+    {
+    color.background = "#FFFFFF" # Chart Background
+    color.grid.major = "#D9D9D9" # Chart Gridlines
+    color.axis.text = "#666666" # 
+    color.axis.title = "#666666" # 
+    color.title = "#666666"
+    color.subtitle = "#666666"
+    strip.background.color = '#9999CC'
+    
+    ret <-
+        theme_bw(base_size=base_size) +
+        
+        # Set the entire chart region to a light gray color
+        theme(panel.background=element_rect(fill=color.background, color=color.background)) +
+        theme(plot.background=element_rect(fill=color.background, color=color.background)) +
+        theme(panel.border=element_rect(color=color.background)) +
+        
+        # Format the grid
+        theme(panel.grid.major=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(panel.grid.minor=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(axis.ticks=element_blank()) +
+        
+        # Format the legend, but hide by default
+        theme(legend.position="none") +
+        theme(legend.background = element_rect(fill=color.background)) +
+        theme(legend.text = element_text(size=base_size-3,color=color.axis.title, family = base_family)) +
+        
+        theme(strip.text.x = element_text(size=base_size,color=color.background, family = base_family)) +
+        theme(strip.text.y = element_text(size=base_size,color=color.background, family = base_family)) +
+        #theme(strip.background = element_rect(fill=strip.background.color, linetype="blank")) +
+        theme(strip.background = element_rect(fill = "grey70", colour = NA)) +
+        # theme(panel.border= element_rect(fill = NA, colour = "grey70", size = rel(1)))+
+        # Set title and axis labels, and format these and tick marks
+        theme(plot.title=element_text(color=color.title, 
+                                      size=20, 
+                                      vjust=1.25, 
+                                      family=base_family, 
+                                      hjust = 0.5
+                                      )) +
+        
+        theme(plot.subtitle=element_text(color=color.subtitle, size=base_size+2, family = base_family,  hjust = 0.5))  +
+        
+        theme(axis.text.x=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(axis.text.y=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(text=element_text(size=base_size, color=color.axis.text, family = base_family)) +
+        
+        theme(axis.title.x=element_text(size=base_size+2,color=color.axis.title, vjust=0, family = base_family)) +
+        theme(axis.title.y=element_text(size=base_size+2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        theme(plot.caption=element_text(size=base_size-2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        
+        # Legend  
+        theme(legend.text=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.title=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.key=element_rect(colour = color.background, fill = color.background)) +
+        theme(legend.position="bottom", 
+              legend.box = "horizontal", 
+              legend.title = element_blank(),
+              legend.key.width = unit(.75, "cm"),
+              legend.key.height = unit(.75, "cm"),
+              legend.spacing.x = unit(.25, 'cm'),
+              legend.spacing.y = unit(.25, 'cm'),
+              legend.margin = margin(t=0, r=0, b=0, l=0, unit="cm")) +
+
+        # Plot margins
+        theme(plot.margin = unit(c(.5, .5, .5, .5), "cm"))
+    
+    ret
+}
+```
+
+
+```{r}
+# Crear un corpus de texto
+corpus <- Corpus(VectorSource(unemployment_2$comment))
+
+# Definir stopwords adicionales
+additional_stopwords <- c("upvote", "upvotes", "view", "views", "y", "dfollow", "answer", "answers")
+
+# Limpiar el corpus de texto
+clean_corpus <- corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("english"), additional_stopwords)) %>%
+  tm_map(stripWhitespace) 
+ 
+
+# Crear una Document-Term Matrix (DTM) para bigramas
+BigramTokenizer <- function(x) {
+  unlist(lapply(ngrams(words(x), 2), paste, collapse = " "), use.names = FALSE)
+}
+dtm_bigrams <- DocumentTermMatrix(clean_corpus, control = list(tokenize = BigramTokenizer))
+
+# Calcular el TF-IDF
+tfidf <- weightTfIdf(dtm_bigrams)
+tfidf_matrix <- as.matrix(tfidf)
+
+# Calcular la suma de TF-IDF para cada término
+top_terms <- sort(colSums(tfidf_matrix), decreasing = TRUE)
+
+# Convertir a un data frame
+top_terms_df <- data.frame(term = names(top_terms), tfidf = top_terms)
+
+# Filtrar los términos específicos y aquellos que contienen "..." o "'" o "’"
+top_terms_df <- top_terms_df %>%
+  filter(!term %in% c("httpswwwquoracomunansweredhowdoiprotectemployeesandbusinessesincovid", 
+                      "httpswwwquoracomwhataresomementalhealthtipsduringcovid")) %>%
+  filter(!grepl("\\.\\.\\.", term)) %>%  # Filtrar términos que contienen "..."
+  filter(!grepl("'", term)) %>%  # Filtrar términos que contienen "'"
+  filter(!grepl("’", term)) %>%  # Filtrar términos que contienen "’"
+  arrange(desc(tfidf)) %>%
+  head(15)
+
+# Imprimir el data frame resultante
+print(top_terms_df)
+
+# Graficar los principales términos por TF-IDF con una paleta de colores diferente
+ggplot(top_terms_df, aes(x = reorder(term, tfidf), y = tfidf, fill = term)) +
+  geom_bar(stat = "identity", color = "black")  +  # Usar la paleta de colores viridis
+  labs(title = "Top 15 términos: Unemployment and MH", subtitle = "Reddit", x = "Término", y = "TF-IDF") +
+  theme_elegante() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1), 
+        legend.position = "none",
+        axis.title.x = element_text(face = "bold"),  # Título del eje x en negrita
+        axis.title.y = element_text(face = "bold"))  # Título del eje y en negrita
+```
+
+```{r}
+
+library(ggwordcloud)
+library(viridis)
+# Combine all cleaned text into a single data frame
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Remove unwanted characters (".", "...", "'", "’", "s", "·", "“”, etc.)
+cleaned_text$text <- gsub("[\\.]{2,}", "", cleaned_text$text)  # Remove multiple dots
+cleaned_text$text <- gsub("'", "", cleaned_text$text)
+cleaned_text$text <- gsub("’", "", cleaned_text$text)
+cleaned_text$text <- gsub("·", "", cleaned_text$text)
+cleaned_text$text <- gsub("and|the|of|j’’|“|”", "", cleaned_text$text)  # Remove specific words and characters
+cleaned_text$text <- gsub("[[:punct:]]", "", cleaned_text$text)  # Remove punctuation
+cleaned_text$text <- gsub("\\s+", " ", cleaned_text$text)  # Remove extra whitespace
+
+# Tokenize the text
+words <- unlist(strsplit(cleaned_text$text, " "))
+
+# Remove empty strings and unwanted short words from the tokenized words
+unwanted_words <- c("p", "o", "ob", "s", "j", "t", "b", "de", "c", "e", "	𝐊", "quora", "don", "k", "re", "etc", "youre", "m", "s", "also")
+words <- words[words != "" & !words %in% unwanted_words]
+
+# Create word frequency table
+word_freq <- table(words)
+word_freq_df <- as.data.frame(word_freq)
+colnames(word_freq_df) <- c("word", "freq")
+
+# Filter words with a minimum frequency
+word_freq_df <- word_freq_df[word_freq_df$freq >= 100,]
+
+# Plot word cloud using ggwordcloud
+ggplot(word_freq_df, aes(label = word, size = freq, color = freq)) +
+  geom_text_wordcloud_area(rm_outside = TRUE) +  # Ensure words don't overlap and stay within bounds
+  scale_size_area(max_size = 30) +
+  scale_color_viridis_c() +  # Set color scheme for the text
+  theme_elegante() +
+  labs(title = "Unemployment and MH: Reddit", 
+       subtitle = "Mínima frecuencia: 100") +
+  theme(
+    plot.title = element_text(size = 20, hjust = 0.5, vjust = 1, face = "bold"),  # Centered title at the top
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "darkgrey"),  # Centered subtitle below the title
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+```
+
+
+```{r}
+# Combine all cleaned text into a single data frame
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Tokenize the text into bigrams
+bigrams <- cleaned_text %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+  filter(!is.na(bigram))  # Filtrar valores NA
+
+# Count the frequency of each bigram
+bigram_counts <- bigrams %>%
+  count(bigram, sort = TRUE)
+
+# Filter to remove unwanted bigrams
+unwanted_bigrams <- c("don t", "originally answer", "follow former", "can t", "health quora", "s mental health", "don t know", "try quora add", "quora add question", "arent allow write", "allow write question", "NA", "didn t", "isn t", "don t need", "don t get", "work don t", "don t work","can t refuse", "doesn t", "t get")
+filtered_bigrams <- bigram_counts %>%
+  filter(!bigram %in% unwanted_bigrams)
+
+# Filter to keep only the top 20 bigrams
+top_bigrams <- filtered_bigrams %>%
+  top_n(20, wt = n)
+
+# Visualize the top 20 bigrams without legend
+ggplot(top_bigrams, aes(x = reorder(bigram, n), y = n, fill = reorder(bigram, n))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 20 bigramas: Unemployment and MH", subtitle = "Reddit", x = "Bigrama", y = "Frecuencia") +
+  theme_elegante() +                      
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        axis.title.x = element_text(face = "bold"),  
+        axis.title.y = element_text(face = "bold"),  
+        legend.position = "none")
+
+# Tokenize the text into trigrams
+trigrams <- cleaned_text %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3) %>%
+  filter(!is.na(trigram))  # Filtrar valores NA
+
+# Count the frequency of each trigram
+trigram_counts <- trigrams %>%
+  count(trigram, sort = TRUE)
+
+# Filter to remove unwanted trigrams
+unwanted_trigrams <- c("k share", "s mental health", "don t know", "write arent allow", "try quora add", "quora add question", "arent allow write", "allow write question", "don t", "originally answer", "follow former", "can t", "health quora", "s mental health", "don t know", "try quora add", "quora add question", "arent allow write", "allow write question", "NA", "didn t", "isn t", "don t need", "don t get", "work don t", "don t work","can t refuse")
+filtered_trigrams <- trigram_counts %>%
+  filter(!trigram %in% unwanted_trigrams)
+
+# Filter to keep only the top 20 trigrams
+top_trigrams <- filtered_trigrams %>%
+  top_n(20, wt = n)
+
+# Visualize the top 20 trigrams without legend
+ggplot(top_trigrams, aes(x = reorder(trigram, n), y = n, fill = reorder(trigram, n))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 20 trigramas: Unemployment and MH", subtitle = "Reddit", x = "Trigrama", y = "Frecuencia") +
+  theme_elegante() +                      
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        axis.title.x = element_text(face = "bold"),  
+        axis.title.y = element_text(face = "bold"),  
+        legend.position = "none")
+```
+```{r}
+library(igraph)
+library(ggraph)
+# Define a list of unwanted words
+unwanted_words <- c("di", "yr", "doi", "org", "o", "p", "https", "res", 
+                    "claimant count", "std", "unstd", "be", "garciagómez", 
+                    "int", "macmillan", "ppi", "yes", "claimant", "count", "iec", "fjmd", "t", "pa", "creed", "univ", "connecticut", "garcíagómez", "sjpsagepubcom", "tue", "sep", "ii", "download", "iza", "e", "ects", "jstor", "ltd", "𝐊", "q", "de", "witte", "copyright", "john", "wiley", "httpsdoiorgjournalpone", "sarti", "zella", "s", "j", "epidemiol", "jung", "dw", "kwak", "kk", "vol", "pp", "plos", "bmc", "quora", "api", "scraper", "im", "album", "yupoo", "k", "cicd", "ci", "tool", "idenative", "pipeline", "ad", "free", "mo", "k", "arent", "allow", "request", "sponsor")
+
+# Combine all cleaned text into a single data frame
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Tokenize the text into bigrams
+bigrams <- cleaned_text %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Separate the bigrams into two columns
+bigrams_separated <- bigrams %>%
+  separate(bigram, into = c("word1", "word2"), sep = " ")
+
+# Filter out unwanted words and NA values
+bigrams_filtered <- bigrams_separated %>%
+  filter(!is.na(word1) & !is.na(word2) & !word1 %in% unwanted_words & !word2 %in% unwanted_words)
+
+# Count the frequency of each bigram
+bigram_counts <- bigrams_filtered %>%
+  count(word1, word2, sort = TRUE)
+
+# Filter to keep only the top 60 bigrams for visualization
+top_bigrams <- bigram_counts %>%
+  top_n(60, wt = n)
+
+# Create a graph object using igraph
+bigram_graph <- graph_from_data_frame(top_bigrams)
+
+# Plot the bigram network using ggraph
+set.seed(1234)
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), edge_width = 0.6, edge_colour = "red3",  # Change color to "darkgray"
+                 arrow = arrow(type = "closed", length = unit(0.185, "inches"))) +
+  geom_node_point(size = 5, color = "darkolivegreen3") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +
+  theme_void() +
+  labs(title = "Unemployment and MH: Reddit", 
+       subtitle = "Top 60")
+
+# Tokenize the text into trigrams
+trigrams <- cleaned_text %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3)
+
+# Separate the trigrams into three columns
+trigrams_separated <- trigrams %>%
+  separate(trigram, into = c("word1", "word2", "word3"), sep = " ")
+
+# Filter out unwanted words and NA values
+trigrams_filtered <- trigrams_separated %>%
+  filter(!is.na(word1) & !is.na(word2) & !is.na(word3) & !word1 %in% unwanted_words & !word2 %in% unwanted_words & !word3 %in% unwanted_words)
+
+# Count the frequency of each trigram
+trigram_counts <- trigrams_filtered %>%
+  count(word1, word2, word3, sort = TRUE)
+
+# Filter to keep only the top 60 trigrams for visualization
+top_trigrams <- trigram_counts %>%
+  top_n(60, wt = n)
+
+# Create a graph object using igraph
+trigram_graph <- graph_from_data_frame(top_trigrams, directed = TRUE)
+
+# Plot the trigram network using ggraph with kk layout
+set.seed(1234)
+ggraph(trigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), edge_width = 0.6, 
+                 arrow = arrow(type = "closed", length = unit(0.185, "inches")), 
+                 edge_colour = "sienna") +  # Change color to "darkgray"
+  geom_node_point(size = 5, color = "steelblue3") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +
+  theme_void() +
+  labs(title = "Unemployment and MH: Reddit", 
+       subtitle = "Top 60")
+
+
+```
+
+```{r}
+# Create a Document-Term Matrix (DTM)
+dtm <- DocumentTermMatrix(clean_corpus)
+```
+
+
+```{r}
+library(igraph)
+library(ggraph)
+# Función para crear matriz de concurrencia
+create_cooccurrence_matrix <- function(dtm) {
+  dtm_matrix <- as.matrix(dtm)
+  term_matrix <- t(dtm_matrix) %*% dtm_matrix
+  term_matrix[lower.tri(term_matrix, diag = TRUE)] <- 0
+  term_matrix
+}
+
+# Crear la matriz de concurrencia
+cooccurrence_matrix <- create_cooccurrence_matrix(dtm)
+
+# Convertir la matriz de concurrencia en un dataframe
+cooccurrence_df <- as.data.frame(as.table(cooccurrence_matrix))
+colnames(cooccurrence_df) <- c("term1", "term2", "frequency")
+
+# Filtrar términos con concurrencia baja y eliminar caracteres no deseados
+cooccurrence_df <- cooccurrence_df %>%
+  filter(frequency >100) %>% 
+  filter(!term1 %in% c("–", "’", "‘", "−", "…", "⁎", "“", "”", "𝖥", "∗∗∗", "∗∗", "≥") & 
+         !term2 %in% c("–", "’", "‘", "−","…", "⁎", "“", "”", "𝖥", "∗∗∗", "∗∗", "≥"))
+
+# Crear un grafo a partir de la matriz de concurrencia
+cooccurrence_graph <- graph_from_data_frame(cooccurrence_df, directed = FALSE)
+
+# Aumentar la transparencia de las líneas y ajustar el tamaño del grafo
+set.seed(175)  # Asegura la reproducibilidad
+ggraph(cooccurrence_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = frequency, edge_width = frequency), color = "pink3", show.legend = TRUE) +
+  geom_node_point(color = "springgreen3", size = 4) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +  # Usar repel para mejorar la distribución de etiquetas
+  scale_edge_width_continuous(name = "n") +
+  scale_edge_alpha_continuous(name = "n") +
+  theme_void() +
+  labs(title = "Unemployment and MH: Reddit", 
+       subtitle = "Frecuencia > 100") +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        plot.subtitle = element_text(size = 10),
+        plot.caption = element_text(size = 8, hjust = 1))
+
+```
+
+```{r}
+# Sumarizar las emociones
+emotion_counts <- colSums(Sentimiento_unemployment_2[, 1:10])
+
+# Crear un dataframe para facilitar la visualización
+emotion_df <- data.frame(emotion = names(emotion_counts), count = emotion_counts)
+
+# Crear un gráfico de barras para las emociones con colores
+ggplot(emotion_df, aes(x = reorder(emotion, -count), y = count, fill = emotion)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(title = "Sentimientos: Unemployment and mental health", subtitle = "Reddit", x = "Sentimiento", y = "Total") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold")) +
+  scale_x_discrete(labels = c("positive" = "positivo", "negative" = "negativo", "trust" = "confianza",
+                              "sadness" = "tristeza", "fear" = "miedo", "anger" = "enfado",
+                              "anticipation" = "anticipación", "disgust" = "disgusto",
+                              "surprise" = "sorpresa", "joy" = "alegría"))
+
+
+```
+
+
+
+```{r}
+
+library(tidytext)
+library(reshape2)
+
+# Convertir el corpus a un dataframe
+comments_df <- data.frame(text = unemployment_2$comment)
+
+# Tokenizar los comentarios
+comments_tokens <- comments_df %>%
+  unnest_tokens(word, text)
+
+# Unir los comentarios con el sentimiento de las palabras
+comments_sentiment <- comments_tokens %>%
+  inner_join(get_Sentimiento_unemployment_2("bing"))
+
+# Contar las palabras por sentimiento
+word_sentiment_count <- comments_sentiment %>%
+  count(word, sentiment, sort = TRUE)
+
+# Convertir los datos a un formato adecuado para comparison.cloud
+word_sentiment_matrix <- word_sentiment_count %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0)
+
+# Crear la nube de palabras
+comparison.cloud(word_sentiment_matrix,
+                  colors = c("#F8766D", "#00BFC4"),
+                  max.words = 100)
+```
+
+```{r}
+# Obtener las emociones del texto
+emociones <- get_nrc_sentiment(unemployment_2$comment)
+
+# Redondear las fechas al inicio del año
+unemployment_2$date <- floor_date(as.Date(unemployment_2$date), "year")
+
+# Calcular la media de las emociones por año
+emociones$year <- unemployment_2$date
+emociones_summary <- emociones %>%
+  group_by(year) %>%
+  summarise(positive = mean(positive), negative = mean(negative))
+
+# Crear el gráfico
+ggplot(emociones_summary, aes(x = year)) +
+  geom_smooth(aes(y = positive, colour = "Positivo"), method = "loess", size = 1.2, se = FALSE) +
+  geom_smooth(aes(y = negative, colour = "Negativo"), method = "loess", size = 1.2, se = FALSE) +
+  scale_colour_manual(values = c("Negativo" = "#dc143c", "Positivo" = "#62ca35"), 
+                      labels = c("Negativo", "Positivo")) +
+  theme_elegante() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.3)) +
+  labs(title = "Sentimientos: Unemployment and mental health", x = "Año", y = "Grado emocional",
+       colour = "Emoción")  # Etiqueta personalizada para la leyenda de colores
+```
+
+```{r}
+# Renombrar las columnas de emociones2
+colnames(emociones2) <- c("Ira", "Anticipacion", "Disgusto", "Miedo", "Alegria", "Tristeza",
+                          "Sorpresa", "Confianza", "Negativo", "Positivo")
+
+# Asegurarse de que no haya NA en los nombres de las columnas
+emociones2 <- emociones2[complete.cases(emociones2), ]
+
+# Asignar las fechas desde unemployment_2
+emociones2$fecha <- unemployment_2$date
+
+# Transformar los datos a formato largo
+emociones2_long <- gather(emociones2, key = "emocion", value = "sentimiento", -fecha)
+
+# Filtrar las emociones que no sean "Negativo" y "Positivo"
+emociones2_long <- subset(emociones2_long, emocion != "Negativo" & emocion != "Positivo")
+
+# Convertir 'emocion' a factor
+emociones2_long$emocion <- as.factor(emociones2_long$emocion)
+
+# Crear el gráfico
+ggplot(emociones2_long, aes(x = fecha, y = sentimiento, color = emocion)) +
+  geom_smooth(method = "loess", size = 1.2, se = FALSE) + 
+  theme_elegante() +
+  scale_color_manual(values = brewer.pal(8, "Dark2"), name = "Emoción") +
+  scale_x_datetime(date_breaks = "1 year") +  # Cambiado a intervalos anuales
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.3)) +
+  labs(title = "Trayectoria emocional en los comentarios", x = "Fecha", y = "Grado emocional")
+
+```
+
+
+#NUBE DE PALABRAS 
+
+
+
+
+```{r}
+#fijación de semilla 
+set.seed(13)
+```
+
+##Nube de palabras completa
+```{r}
+unemployment_2$comment %>% VectorSource() %>% VCorpus() %>% tm_map(removeWords,
+stopwords("english")) %>%
+wordcloud(scale=c(3, 0.4), min.freq = 20, max.words=100, color = brewer.pal(8, "Dark2"))
+```
+[Explicación]
+
+```{r}
+#nube de palabras antes el lanzamiento 
+antes$comment %>% VectorSource() %>% VCorpus() %>% tm_map(removeWords,
+stopwords("english")) %>%
+wordcloud(scale=c(3, 0.4), min.freq = 10, max.words=100, color = brewer.pal(8, "Dark2"))
+```
+
+[Explicación]
+
+
+```{r}
+#nube de palabras después del lanzamiento
+despues$comment %>% VectorSource() %>% VCorpus() %>% tm_map(removeWords,
+stopwords("english")) %>%
+wordcloud(scale=c(3, 0.4), min.freq = 10, max.words=100, color = brewer.pal(8, "Dark2"))
+```
+Vemos la aparición de la palabra VISION entre las más importante, hará referencia al lanzamiento de las gafas unemployment_2 Vision Pro...
+
+
+```{r}
+# Sumarizar las emociones
+emotion_counts <- colSums(Sentimiento_unemployment_2[, 1:8])
+
+# Crear un dataframe para facilitar la visualización
+emotion_df <- data.frame(emotion = names(emotion_counts), count = emotion_counts)
+
+# Crear un vector de colores suaves para cada emoción
+emotion_colors <- c("anger" = "#FF9999", "disgust" = "#99CC99", "fear" = "#CC99FF", "joy" = "#FFFF99", 
+                    "sadness" = "#99CCFF", "surprise" = "#FFCC99", "trust" = "#CCE5FF", "anticipation" = "#FFCCE5")
+
+# Crear un gráfico de barras para las emociones
+ggplot(emotion_df, aes(x = reorder(emotion, -count), y = count, fill = emotion)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = emotion_colors) +
+  labs(title = "Distribución de Emociones en los Comentarios de mental",
+       x = "Emoción", y = "Frecuencia") +
+  theme_classic() # Cambiar el tema del gráfico
+```
+
+
+```{r}
+# Sumarizar las polaridades
+polarity_counts <- colSums(Sentimiento_unemployment_2[, 9:10])
+
+# Crear un dataframe para facilitar la visualización
+polarity_df <- data.frame(polarity = names(polarity_counts), count = polarity_counts)
+
+# Definir colores para las polaridades
+positive_color <- "#9EFF9E"  # Verde claro para positivo
+negative_color <- "#FF9999"  # Rojo suave para negativo
+
+# Crear un gráfico de barras para las polaridades
+ggplot(polarity_df, aes(x = reorder(polarity, -count), y = count, fill = polarity)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("positive" = positive_color, "negative" = negative_color)) +
+  labs(title = "Distribución de Polaridades en los Comentarios de mental",
+       x = "Polaridad", y = "Frecuencia") +
+  theme_classic()  # Cambiar el tema del gráfico
+
+```
+
+```{r}
+# Supongamos que tienes una columna "date" en el dataframe mental
+# Convertir las fechas a formato Date
+unemployment_2$date <- as.Date(unemployment_2$date)
+
+# Añadir las emociones al dataframe original
+unemployment_2 <- cbind(unemployment_2, Sentimiento_unemployment_2)
+
+# Calcular la media de cada emoción por fecha
+emotion_trends <- unemployment_2%>%
+  group_by(date) %>%
+  summarise(across(anger:positive, mean))
+
+# Convertir a formato largo para ggplot2
+emotion_trends_long <- emotion_trends %>%
+  gather(key = "emotion", value = "average_score", -date)
+
+ggplot(emotion_trends_long, aes(x = date, y = average_score, color = emotion)) +
+  geom_line(size = 0.8) +  # Reducir el grosor de las líneas
+  labs(title = "Tendencias de Emociones en los Comentarios de mental a lo largo del Tiempo",
+       x = "Fecha", y = "Puntuación Promedio de Emoción") +
+  scale_color_brewer(palette = "Set1") +  # Utilizar una paleta de colores más distintiva
+  theme_classic()  # Cambiar el tema del gráfico
+```
+
+```{r}
+
+# Gráfico de área para las tendencias de emociones a lo largo del tiempo
+ggplot(emotion_trends_long, aes(x = date, y = average_score, fill = emotion)) +
+  geom_area() +
+  labs(title = "Tendencias de Emociones en los Comentarios de mental a lo largo del Tiempo",
+       x = "Fecha", y = "Puntuación Promedio de Emoción", fill = "Emoción") +
+  theme_classic()
+```
+
+```{r}
+library(tidytext)
+library(igraph)
+library(ggraph)
+library(dplyr)
+library(tidyr)
+library(tm)
+library(stringr)
+
+# Función para limpiar los comentarios
+clean_comment <- function(comment) {
+  comment %>%
+    tolower() %>%
+    removeWords(stopwords("en")) %>%      # Remover stopwords en inglés
+    removePunctuation() %>%              # Remover puntuación
+    removeNumbers() %>%                  # Remover números
+    str_replace_all("http[^[:space:]]*", "")  # Remover URL
+}
+
+# Asegurarse de que comments1$comment es un vector de caracteres
+comments1$comment <- as.character(comments1$comment)
+
+# Limpiar los comentarios
+cleaned_comments <- sapply(comments1$comment, clean_comment)
+
+# Crear un tibble con los comentarios limpiados
+comments_tibble <- tibble(comment = cleaned_comments)
+
+# Crear bigramas
+cleaned_bigramas <- comments_tibble %>%
+  unnest_tokens(bigram, comment, token = "ngrams", n = 2) %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  filter(!word1 %in% stopwords("en") & !word2 %in% stopwords("en"))  # Filtrar stopwords en los bigramas
+
+# Verificar los bigramas generados
+print(head(cleaned_bigramas))
+
+# Filtrar los bigramas con frecuencia mayor o igual a 50
+filtered_bigramas <- cleaned_bigramas %>%
+  count(word1, word2) %>%
+  filter(n >= 5)
+
+# Verificar los bigramas filtrados
+print(head(filtered_bigramas))
+
+# Crear el gráfico de red
+set.seed(175)
+graph <- graph_from_data_frame(filtered_bigramas, directed = TRUE)
+
+# Visualizar el gráfico de red
+ggraph(graph, layout = "fr") +
+  geom_edge_link(aes(start_cap = label_rect(node1.name), end_cap = label_rect(node2.name)), arrow = arrow(type = "closed", length = unit(0.1, "inches")), color = "gray50", size = 0.5) +
+  geom_node_point(color = "skyblue", size = 8, alpha = 0.8) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 4, color = "black") +
+  theme_void() +
+  labs(title = "Red de Bigramas en los Comentarios de Reddit (Limpiada)",
+       subtitle = "Bigramas con una frecuencia mayor o igual a 50 y sin stopwords",
+       caption = "Fuente: Comentarios de Reddit en el subreddit 'work' (Limpio)") +
+  theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 12, hjust = 0.5),
+        plot.caption = element_text(size = 10, hjust = 0.5))
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+library(tidytext)
+library(reshape2)
+
+# Convertir el corpus a un dataframe
+comments_df <- data.frame(text = unemployment_2$comment)
+
+# Tokenizar los comentarios
+comments_tokens <- comments_df %>%
+  unnest_tokens(word, text)
+
+# Unir los comentarios con el sentimiento de las palabras
+comments_sentiment <- comments_tokens %>%
+  inner_join(get_sentiments("bing"))
+
+# Contar las palabras por sentimiento
+word_sentiment_count <- comments_sentiment %>%
+  count(word, sentiment, sort = TRUE)
+
+# Convertir los datos a un formato adecuado para comparison.cloud
+word_sentiment_matrix <- word_sentiment_count %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0)
+
+# Crear la nube de palabras
+comparison.cloud(word_sentiment_matrix,
+                  colors = c("#F8766D", "#00BFC4"),
+                  max.words = 100)
+```
+
+
+
+```{r}
+
+sentimientos <- get_sentiment(unemployment_2$comment)
+summary(sentimientos)
+```
+
+```{r}
+
+library(ggplot2)
+
+# Asegúrate de que la columna date esté en formato POSIXct
+unemployment_2$date <- as.POSIXct(unemployment_2$date)
+
+# Crear el data frame sentimientosdf y ordenar las fechas
+sentimientosdf <- data.frame(sentimientos)
+sentimientosdf$date <- sort(unemployment_2$date)
+
+# Crear el gráfico
+ggplot(sentimientosdf, aes(x = date, y = sentimientos)) +
+  geom_line(linewidth = 1.0, colour = "grey") +
+  geom_smooth(method = "loess", se = FALSE, colour = "red", linewidth = 1.2) + 
+  theme_bw() +
+  scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.3)) +
+  labs(title = "Trayectoria emocional de los comentarios", x = "Fecha", y = "Grado emocional")
+
+```
+
+```{r}
+porcent_val <- get_percentage_values(sentimientos, bins = 50)
+plot(porcent_val, type = "l", col = "blue", 
+     main = "Comentarios empleando medias basadas en %", 
+     xlab = "Evolución", ylab = "Grado emocional") 
+abline(h = 0, lty = 2, col = "grey")
+```
+
+```{r}
+simple_plot(sentimientos)
+```
+```{r}
+# Obtener los sentimientos de los comentarios
+emociones <- get_nrc_sentiment(unemployment_2$comment) 
+
+# Convertir la columna de fecha a formato Date
+unemployment_2$date <- as.Date(unemployment_2$date)
+
+# Obtener los sentimientos de los comentarios
+emociones <- get_nrc_sentiment(unemployment_2$comment) 
+
+# Crear el gráfico
+ggplot(emociones, aes(x = unemployment_2$date)) +
+  geom_smooth(aes(y = positive, colour = "Positivo"), method = "loess", size = 1.2, se = FALSE) +
+  geom_smooth(aes(y = negative, colour = "Negativo"), method = "loess", size = 1.2, se = FALSE) +
+  scale_colour_manual(values = c("Positivo" = "#62ca35", "Negativo" = "#dc143c")) +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +  # Cambio a scale_x_date y ajuste de date_breaks
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.3)) +
+  labs(title = "Sentimientos", x = "Fecha", y = "Grado Emocional")
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(RColorBrewer)
+
+# Obtener los sentimientos de los comentarios
+emociones <- get_nrc_sentiment(unemployment_2$comment) 
+
+# Añadir la columna de fecha
+emociones$fecha <- as.Date(unemployment_2$date)
+
+# Transformar los datos a formato largo
+emociones_long <- gather(emociones, key = "emocion", value = "sentimiento", -fecha)
+
+# Traducir los nombres de las emociones
+emociones_long$emocion <- recode(emociones_long$emocion,
+                                 anger = "enfado",
+                                 disgust = "disgusto",
+                                 joy = "alegría",
+                                 surprise = "sorpresa",
+                                 anticipation = "anticipación",
+                                 fear = "miedo",
+                                 sadness = "tristeza",
+                                 trust = "confianza")
+
+# Filtrar las emociones que no sean "Negativo" y "Positivo"
+emociones_long <- subset(emociones_long, emocion != "negative" & emocion != "positive")
+
+# Convertir 'emocion' a factor
+emociones_long$emocion <- as.factor(emociones_long$emocion)
+
+# Crear el gráfico
+ggplot(emociones_long, aes(x = fecha, y = sentimiento, color = emocion)) +
+  geom_smooth(method = "loess", size = 1.2, se = FALSE) + 
+  theme_elegante() +
+  scale_color_manual(values = brewer.pal(8, "Dark2"), name = "Emoción") +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.3),
+        plot.title = element_text(size = 14)) +  # Reduce title size here
+  labs(title = "Trayectoria emocional: Unemployment and mental health", x = "Fecha", y = "Grado emocional")
+
+
+
+```
+
+
+
+
+
+```{r}
+# Cargar las bibliotecas necesarias
+library(dplyr)
+library(ggplot2)
+library(udpipe)
+library(textrank)
+library(tidytext)
+library(lubridate)
+
+# Procesamiento del texto con UDPipe
+ud_model <- udpipe_download_model(language = "english")
+udpipe_model <- udpipe_load_model(ud_model$file_model)
+
+# Anotación del texto
+anot <- udpipe_annotate(udpipe_model, x = unemployment_2$comment)
+anot <- as.data.frame(anot)
+
+# Filtrar sustantivos
+terminos_n <- subset(anot, upos == "NOUN")
+
+# Calcular la frecuencia de los lemas de sustantivos
+terminos_n <- txt_freq(terminos_n$lemma)
+
+# Convertir los términos a factores con niveles ordenados
+terminos_n$key <- factor(terminos_n$key, levels = rev(terminos_n$key))
+
+# Graficar los sustantivos más frecuentes
+ggplot(head(terminos_n, 20), aes(x = key, y = freq)) +
+  geom_bar(stat = "identity", fill = "cadetblue") +
+  coord_flip() +
+  labs(title = "Sustantivos más frecuentes", x = "Frecuencia", y = "Sustantivos") +
+  theme_minimal()
+
+```
+
+
+```{r}
+# Filtrar nombres propios
+terminos_np <- subset(anot, upos == "PROPN")
+
+# Calcular la frecuencia de los lemas de nombres propios
+terminos_np <- txt_freq(terminos_np$lemma)
+
+# Convertir los términos a factores con niveles ordenados
+terminos_np$key <- factor(terminos_np$key, levels = rev(terminos_np$key))
+
+# Graficar los nombres propios más frecuentes
+grafico_nombres_propios <- ggplot(head(terminos_np, 20), aes(x = key, y = freq)) +
+  geom_bar(stat = "identity", fill = "coral") +
+  coord_flip() +
+  labs(title = "Nombres propios más frecuentes", x = "Frecuencia", y = "Nombres propios") +
+  theme_minimal()
+grafico_nombres_propios
+```
+
+```{r}
+# Filtrar adjetivos
+terminos_a <- subset(anot, upos == "ADJ")
+
+# Calcular la frecuencia de los lemas de adjetivos
+terminos_a <- txt_freq(terminos_a$lemma)
+
+# Convertir los términos a factores con niveles ordenados
+terminos_a$key <- factor(terminos_a$key, levels = rev(terminos_a$key))
+
+# Graficar los adjetivos más frecuentes
+grafico_adjetivos <- ggplot(head(terminos_a, 20), aes(x = key, y = freq)) +
+  geom_bar(stat = "identity", fill = "#C8A2C8") +
+  coord_flip() +
+  labs(title = "Adjetivos más frecuentes", x = "Frecuencia", y = "Adjetivos") +
+  theme_minimal()
+grafico_adjetivos
+```
+
+```{r}
+terminos_v <- subset(anot, upos == "VERB")
+terminos_v <- txt_freq(terminos_v$lemma)
+terminos_v$key <- factor(terminos_v$key, levels = rev(terminos_v$key))
+# Graficar los verbos más frecuentes
+grafico_verbos <- ggplot(head(terminos_v, 20), aes(x = key, y = freq)) +
+  geom_bar(stat = "identity", fill = "#DC143C") +
+  coord_flip() +
+  labs(title = "Verbos más frecuentes", x = "Frecuencia", y = "Verbos") +
+  theme_minimal()
+grafico_verbos
+```
+
+```{r}
+library(lattice)
+kwrake <- keywords_rake(x = anot, term = "lemma", group = "doc_id", # Agrupamos por documento (tweet)
+                    relevant = anot$upos %in% c("NOUN", "ADJ","PROPN")) # Sólo sustantivos, adjetivos y
+                                                                        #  nombres propios
+kwrake$key <- factor(kwrake$keyword, levels = rev(kwrake$keyword))
+
+# Graficamos palabras clave que aparezcan al menos 5 veces
+barchart(key ~ rake, data = head(subset(kwrake, freq > 4), 20), col = "cadetblue",
+         main = list("Identificar palabras clave mediante RAKE", cex="1"), xlab = "RAKE")
+```
+
+```{r}
+kwpmi <- keywords_collocation(x = anot, term = "lemma", group = "doc_id")
+kwpmi$key <- factor(kwpmi$keyword, levels = rev(kwpmi$keyword))
+
+barchart(key ~ pmi, data = head(subset(kwpmi, freq > 9), 20), col = "cadetblue",
+         main = list("Identificar palabras clave mediante Colocación PMI", cex="1"),
+         xlab = "PMI (Pointwise Mutual Information)")
+```
+
+```{r}
+anot$phrase_tag <- as_phrasemachine(anot$upos, type = "upos")
+
+# Cambiar etiqueta a "pronombres" y "números"
+anot$phrase_tag[anot$upos=="PRON"] <- "O"
+anot$phrase_tag[anot$upos=="NUM"] <- "O"
+
+# Obtenemos las frases nominales simples (expresión regular)
+kwphrases <- keywords_phrases(x = anot$phrase_tag, term = tolower(anot$token),
+                              pattern = "(A|N)*N(P+D*(A|N)*N)*",
+                              is_regex = TRUE, detailed = FALSE)
+
+# Filtramos aquellas que contienen más de una palabra y aparecen más de 3 veces
+kwphrases <- subset(kwphrases, ngram > 1 & freq > 3)
+kwphrases$key <- factor(kwphrases$keyword, levels = rev(kwphrases$keyword))
+
+barchart(key ~ freq, data = head(kwphrases, 20), col = "cadetblue",
+         main = list("Palabras Clave - Frases nominales simples", cex="1"), xlab = "Frecuencia")
+```
+
+```{r}
+keywords <- textrank_keywords(anot$lemma, relevant = anot$upos %in% c("NOUN", "ADJ","PROPN"),
+                              ngram_max = 8, sep = " ") # Sólo sustantivos, adjetivos y nombres propios
+
+# Filtramos aquellas que contienen más de una palabra y aparecen más de 3 veces
+keywords <- subset(keywords$keywords, ngram > 1 & freq > 3) 
+keywords$keyword <- factor(keywords$keyword, levels = rev(keywords$keyword))
+
+# Nube de palabras clave más frecuentes
+wordcloud(words=keywords$keyword, freq=keywords$freq, random.order=F, colors=brewer.pal(8,"Dark2"))
+```
+
+
+```{r}
+library(tidytext)
+
+# Filtrar los términos por categorías gramaticales específicas
+terminos <- subset(anot, upos %in% c("ADJ", "NOUN", "PROPN") & !lemma %in% c("don't"))
+
+# Qué palabras coocurren por tweet
+cooc <- cooccurrence(terminos, group = "doc_id", term = "lemma")
+
+# Imprimir las primeras filas de los resultados
+head(data.frame(cooc))
+   
+```
+
+
+
+```{r}
+wordnetwork <- graph_from_data_frame(head(cooc, 50))
+ggraph(wordnetwork, layout = "fr") +
+  geom_edge_link(aes(width = cooc, edge_alpha = cooc), edge_colour = "pink") +
+  geom_node_text(aes(label = name), col = "darkgreen", size = 3.5) +
+  theme_graph(base_family = "sans") + theme(legend.position = "none") +
+  labs(title = "Coocurrencias tweet/oración", 
+       subtitle = "Sustantivos, Adjetivos y Nombres Propios") +
+  theme(plot.title = element_text(size = 14), plot.margin = margin(0,1,0,1))
+```
+
+
+
+```{r}
+# Graficamos coocurrencias con skipgram = 1
+wordnetwork <- graph_from_data_frame(head(cooc, 50))
+ggraph(wordnetwork, layout = "fr") +
+  geom_edge_link(aes(width = cooc, edge_alpha = cooc),edge_colour = "pink") +
+  geom_node_text(aes(label = name), col = "darkgreen", size = 3.5) +
+  theme_graph(base_family = "sans") +
+  labs(title = "Qué palabras están próximas", subtitle = "Sustantivos, Adjetivos y Nombres Propios") +
+  theme(plot.title = element_text(size = 14), plot.margin = margin(0,1,0,1))
+```
+
+
+```{r}
+# Identificador único de cada oración del corpus
+anot$id <- unique_identifier(anot, fields = c("doc_id", "sentence_id"))
+
+# Seleccionamos sólo sustantivos, adjetivos y nombres propios
+dtf <- subset(anot, upos %in% c("NOUN", "ADJ", "PROPN"))
+
+# Creamos matriz documento-término
+dtf <- document_term_frequencies(dtf, document = "id", term = "lemma")
+dtm <- document_term_matrix(dtf)
+
+# Eliminamos términos que aparezcan menos de 10 veces
+dtm <- dtm_remove_lowfreq(dtm, minfreq = 10)
+
+# Eliminamos algunas palabras que no aportan nada al análisis
+dtm <- dtm_remove_terms(dtm, terms = c("don't"))
+```
+
+```{r}
+termcorr <- dtm_cor(dtm)
+dim(termcorr)
+```
+```{r}
+library(formattable)
+library(dplyr)
+
+# Crear un ejemplo de termcorr
+set.seed(123)
+termcorr <- matrix(runif(100, min = -1, max = 1), ncol = 10)
+colnames(termcorr) <- paste0("Term", 1:10)
+rownames(termcorr) <- paste0("Term", 1:10)
+
+# Redondear y convertir a data frame
+df <- as.data.frame(round(termcorr[1:10, 1:5], 2))
+
+# Verificar si los datos están correctamente cargados
+print(df)
+
+# Aplicar formattable con estilo
+formatted_df <- formattable(df, list(
+  area(col = 1:5) ~ color_tile("white", "blue"),
+  area(row = 1:10, col = 1:5) ~ formatter(
+    "span", style = x ~ style(display = "block", padding = "0 4px"))
+))
+
+# Mostrar el resultado
+formatted_df
+
+```
+
+# WORD EMBEDDINGS 
+
+```{r}
+terminos <- subset(anot, upos %in% c("NOUN", "ADJ", "PROPN"), select = c("doc_id", "lemma"))
+terminos <- split(terminos$lemma, terminos$doc_id)
+terminos <- lapply(terminos, paste, collapse = " ")
+docs <- do.call(rbind.data.frame, c(terminos, stringsAsFactors=FALSE))
+colnames(docs) <- "texto"
+docs$id <- as.numeric(str_sub(names(terminos),start = 4))
+docs <- docs[order(docs$id), c("id", "texto")]
+row.names(docs) <- NULL
+rm(terminos)
+```
+
+```{r}
+library(text2vec)
+tokens <- space_tokenizer(docs$texto)
+```
+
+```{r}
+# Crear iterador
+it <- itoken(tokens, progressbar = FALSE)
+
+# Crear el vocabulario
+vocab <- create_vocabulary(it)
+vocab <- vocab[order(vocab$term_count, decreasing = T),]
+vocab$doc_porc <- vocab$doc_count/length(docs$texto)  # Porcentaje
+
+# Filtramos los términos del vocabulario en aquellos que aparecen al menos 7 veces y que no aparezcan 
+# en más del 50% de los documentos (tweets)
+vocab <- prune_vocabulary(vocab, term_count_min = 7, doc_proportion_max = 0.5)
+```
+
+```{r}
+# Definir la función de vectorización
+vectorizer <- vocab_vectorizer(vocab)
+
+# Construir la matriz de coocurrencia de términos
+tcm <- create_tcm(it, vectorizer, skip_grams_window = 5)
+```
+
+```{r}
+glove <- GlobalVectors$new(rank = 20, x_max = 10)
+```
+
+```{r}
+wv_main <- glove$fit_transform(tcm, n_iter = 50, convergence_tol = 0.005)
+```
+
+```{r}
+wv_context <- glove$components
+dim(wv_context)
+```
+```{r}
+word_vectors <- wv_main + t(wv_context)
+```
+
+```{r}
+# vector("exposición")
+wv <- word_vectors["job", ,drop = FALSE]
+# Palabras relacionadas con "exposición"
+cos_sim <- sim2(x = word_vectors, y = wv, method = "cosine", norm = "l2")
+head(sort(cos_sim[,1], decreasing = TRUE), 5)
+```
+
+```{r}
+# vector("anunciación")
+wv <- word_vectors["mental", ,drop = FALSE]
+# Palabras relacionadas con "anunciación"
+cos_sim <- sim2(x = word_vectors, y = wv, method = "cosine", norm = "l2")
+head(sort(cos_sim[,1], decreasing = TRUE), 5)
+```
+
+```{r}
+# vector("mujer")
+wv <- word_vectors["money", ,drop = FALSE]
+# Palabras relacionadas con "mujer"
+cos_sim <- sim2(x = word_vectors, y = wv, method = "cosine", norm = "l2")
+head(sort(cos_sim[,1], decreasing = TRUE), 5)
+```
+
+```{r}
+library(Rtsne)
+library(ggrepel)
+library(ggplot2)
+
+# Ejecutar t-SNE en los vectores de palabras
+tsne <- Rtsne(word_vectors, dims = 2, perplexity = 20, max_iter = 2000)
+
+# Crear un data frame para el gráfico
+tsne_plot <- data.frame(x = tsne$Y[,1], y = tsne$Y[,2], palabra = rownames(word_vectors))
+
+# Seleccionar un subconjunto aleatorio de palabras
+set.seed(123)  # Para reproducibilidad
+n_palabras <- 50  # Número de palabras a mostrar
+palabras_mostrar <- sample(tsne_plot$palabra, n_palabras)
+
+# Filtrar el data frame para incluir solo las palabras seleccionadas
+tsne_plot_subset <- tsne_plot[tsne_plot$palabra %in% palabras_mostrar, ]
+
+# Crear el gráfico t-SNE con un subconjunto de palabras
+ggplot(tsne_plot_subset, aes(x, y)) +
+  geom_point(size = 3, aes(color = palabra)) +  # Añadir puntos con colores basados en las palabras
+  geom_text_repel(aes(label = palabra), size = 3.5, box.padding = 0.3, max.overlaps = 10) +
+  scale_color_viridis_d() +  # Utilizar una paleta de colores adecuada
+  labs(title = "Modelo GloVe (t-SNE)", x = "Dimensión 1", y = "Dimensión 2") +
+  theme_elegante() +
+  theme(
+    legend.position = "none",  # Quitar la leyenda si no es necesaria
+    plot.title = element_text(hjust = 0.5),  # Centrar el título
+    plot.background = element_rect(fill = "white"),  # Fondo blanco
+    panel.grid.major = element_line(color = "gray85"),  # Líneas de la cuadrícula
+    panel.grid.minor = element_blank(),  # Ocultar líneas de cuadrícula menores
+    panel.border = element_blank()  # Ocultar borde del panel
+  )
+
+
+
+```
+
+```{r}
+
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(textstem)
+# Convertir los datos de emociones en una sola cadena de texto
+cloud_emotions_data <- c(
+  paste(unemployment_2$comment[Sentimiento_unemployment_2$sadness > 0], collapse = " "),
+  paste(unemployment_2$comment[Sentimiento_unemployment_2$joy > 0], collapse = " "),
+  paste(unemployment_2$comment[Sentimiento_unemployment_2$anger > 0], collapse = " "),
+  paste(unemployment_2$comment[Sentimiento_unemployment_2$fear > 0], collapse = " "),
+  paste(unemployment_2$comment[Sentimiento_unemployment_2$trust > 0], collapse = " "),
+  paste(unemployment_2$comment[Sentimiento_unemployment_2$anticipation > 0], collapse = " "),
+  paste(unemployment_2$comment[Sentimiento_unemployment_2$disgust > 0], collapse = " "),
+  paste(unemployment_2$comment[Sentimiento_unemployment_2$surprise > 0], collapse = " ")
+)
+
+# Crear un corpus de texto
+cloud_corpus <- Corpus(VectorSource(cloud_emotions_data))
+
+# Limpiar los datos de texto
+cloud_corpus <- cloud_corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("english"))) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(content_transformer(lemmatize_strings))
+
+# Crear una matriz de términos por documento
+cloud_tdm <- TermDocumentMatrix(cloud_corpus)
+cloud_tdm <- as.matrix(cloud_tdm)
+
+# Verificar cuántas emociones tienen palabras asociadas
+num_emotions <- ncol(cloud_tdm)
+emotion_labels <- c('tristeza', 'alegría', 'enfado', 'miedo', 'confianza', 'anticipación', 'disgusto', 'sorpresa')
+emotion_labels <- emotion_labels[1:num_emotions]
+
+# Asignar nombres de columnas a la matriz de términos
+colnames(cloud_tdm) <- emotion_labels
+
+# Generar la nube de palabras
+set.seed(757)  # Se puede establecer cualquier entero
+comparison.cloud(cloud_tdm, random.order = FALSE,
+                 colors = brewer.pal(8, "Dark2"),
+                 title.size = 1.2, max.words = 1000, scale = c(4, 0.5), rot.per = 0.4)
+
+```
+
