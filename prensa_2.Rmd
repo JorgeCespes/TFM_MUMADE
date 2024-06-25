@@ -1,0 +1,1045 @@
+---
+title: "prensa_2"
+author: "Jorge Céspedes Rico"
+date: "2024-06-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Cargar las bibliotecas necesarias
+library(pdftools)
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(syuzhet)
+library(ggplot2)
+library(topicmodels)
+library(textstem)
+library(dplyr)
+library(tidyr)
+library(tidytext)
+library(lubridate)
+library(igraph)
+library(ggraph)
+library(cluster)
+library(factoextra)
+library(Rtsne)
+
+```
+
+
+```{r}
+theme_elegante <- function(base_size = 10,
+                           base_family = "Raleway"
+                           )
+    {
+    color.background = "#FFFFFF" # Chart Background
+    color.grid.major = "#D9D9D9" # Chart Gridlines
+    color.axis.text = "#666666" # 
+    color.axis.title = "#666666" # 
+    color.title = "#666666"
+    color.subtitle = "#666666"
+    strip.background.color = '#9999CC'
+    
+    ret <-
+        theme_bw(base_size=base_size) +
+        
+        # Set the entire chart region to a light gray color
+        theme(panel.background=element_rect(fill=color.background, color=color.background)) +
+        theme(plot.background=element_rect(fill=color.background, color=color.background)) +
+        theme(panel.border=element_rect(color=color.background)) +
+        
+        # Format the grid
+        theme(panel.grid.major=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(panel.grid.minor=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(axis.ticks=element_blank()) +
+        
+        # Format the legend, but hide by default
+        theme(legend.position="none") +
+        theme(legend.background = element_rect(fill=color.background)) +
+        theme(legend.text = element_text(size=base_size-3,color=color.axis.title, family = base_family)) +
+        
+        theme(strip.text.x = element_text(size=base_size,color=color.background, family = base_family)) +
+        theme(strip.text.y = element_text(size=base_size,color=color.background, family = base_family)) +
+        #theme(strip.background = element_rect(fill=strip.background.color, linetype="blank")) +
+        theme(strip.background = element_rect(fill = "grey70", colour = NA)) +
+        # theme(panel.border= element_rect(fill = NA, colour = "grey70", size = rel(1)))+
+        # Set title and axis labels, and format these and tick marks
+        theme(plot.title=element_text(color=color.title, 
+                                      size=20, 
+                                      vjust=1.25, 
+                                      family=base_family, 
+                                      hjust = 0.5
+                                      )) +
+        
+        theme(plot.subtitle=element_text(color=color.subtitle, size=base_size+2, family = base_family,  hjust = 0.5))  +
+        
+        theme(axis.text.x=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(axis.text.y=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(text=element_text(size=base_size, color=color.axis.text, family = base_family)) +
+        
+        theme(axis.title.x=element_text(size=base_size+2,color=color.axis.title, vjust=0, family = base_family)) +
+        theme(axis.title.y=element_text(size=base_size+2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        theme(plot.caption=element_text(size=base_size-2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        
+        # Legend  
+        theme(legend.text=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.title=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.key=element_rect(colour = color.background, fill = color.background)) +
+        theme(legend.position="bottom", 
+              legend.box = "horizontal", 
+              legend.title = element_blank(),
+              legend.key.width = unit(.75, "cm"),
+              legend.key.height = unit(.75, "cm"),
+              legend.spacing.x = unit(.25, 'cm'),
+              legend.spacing.y = unit(.25, 'cm'),
+              legend.margin = margin(t=0, r=0, b=0, l=0, unit="cm")) +
+
+        # Plot margins
+        theme(plot.margin = unit(c(.5, .5, .5, .5), "cm"))
+    
+    ret
+}
+```
+
+
+
+```{r}
+# Listar todos los archivos PDF en el directorio de trabajo
+archivos <- list.files(pattern = "pdf$")
+archivos
+
+```
+
+```{r}
+# Aplicar la función pdf_text a cada archivo PDF
+textos_pdf <- lapply(archivos, pdf_text)
+
+```
+
+```{r}
+# Combinar todos los textos en un solo vector de caracteres
+textos_completos <- unlist(textos_pdf)
+
+```
+
+```{r}
+# Crear un corpus de texto a partir del texto extraído
+corpus <- Corpus(VectorSource(textos_completos))
+
+```
+
+```{r}
+# Definir palabras adicionales a eliminar
+palabras_adicionales <- c("voto", "votos", "ver", "vistas", "y", "respuesta", "respuestas", "seguidores", "seguidor")
+
+```
+
+```{r}
+# Limpiar los datos de texto
+corpus_limpio <- corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("spanish"), palabras_adicionales)) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(content_transformer(lemmatize_strings))
+
+```
+
+```{r}
+# Crear una Matriz Documento-Término (DTM)
+dtm <- DocumentTermMatrix(corpus_limpio)
+
+```
+
+
+```{r}
+# Calcular la Frecuencia de Término-Inversa Frecuencia de Documento (TF-IDF)
+tfidf <- weightTfIdf(dtm)
+tfidf_matriz <- as.matrix(tfidf)
+
+```
+
+```{r}
+# Calcular la suma de TF-IDF para cada término
+terminos_principales <- sort(colSums(tfidf_matriz), decreasing = TRUE)
+
+# Convertir a un data frame
+terminos_principales_df <- data.frame(termino = names(terminos_principales), tfidf = terminos_principales)
+
+# Filtrar términos específicos y aquellos que contienen "..." o "'" o "’"
+terminos_principales_df <- terminos_principales_df %>%
+  filter(!grepl("\\.\\.\\.", termino)) %>%  # Filtrar términos que contienen "..."
+  filter(!grepl("'", termino)) %>%  # Filtrar términos que contienen "'"
+  filter(!grepl("’", termino)) %>%  # Filtrar términos que contienen "’"
+  filter(!termino %in% c("cookie", "httpselpaiscomsaludybienestarlaeradelgranagotamientocomoeltrabajoconsumenuestraenergiayhastanuestroocioh", 
+                         "httpswwweleconomistaessaludinnovacionnoticiaslaconcienciaciondelasempresassobresaludmejoralaproductivid", 
+                         "httpswwweleconomistaesopinionnoticiaselimpactoeconomicodenocuidardelasaludmentalenlasempresashtml", "•", "…", "…", "", "suscríbete", "“", "”")) %>%
+  arrange(desc(tfidf)) %>%
+  head(15)
+
+# Imprimir el data frame resultante
+print(terminos_principales_df)
+
+```
+
+
+```{r}
+# Graficar los principales términos por TF-IDF con una paleta de colores diferente
+ggplot(terminos_principales_df, aes(x = reorder(termino, tfidf), y = tfidf, fill = termino)) +
+  geom_bar(stat = "identity", color = "black")  +  # Usar la paleta de colores viridis
+  labs(title = "Top 15 términos: archivos y blogs archivoses", x = "Término", y = "TF-IDF") +
+  theme_elegante() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1), 
+        legend.position = "none",
+        axis.title.x = element_text(face = "bold"),  # Título del eje x en negrita
+        axis.title.y = element_text(face = "bold"))  # Título del eje y en negrita
+
+
+```
+
+```{r}
+library(ggwordcloud)
+# Combine all cleaned text into a single data frame
+cleaned_text <- data.frame(text = sapply(corpus_limpio, as.character), stringsAsFactors = FALSE)
+
+# Remove unwanted characters (".", "...", "'", "’", "s", "·", "“”, etc.)
+cleaned_text$text <- gsub("[\\.]{2,}", "", cleaned_text$text)  # Remove multiple dots
+cleaned_text$text <- gsub("'", "", cleaned_text$text)
+cleaned_text$text <- gsub("’", "", cleaned_text$text)
+cleaned_text$text <- gsub("·", "", cleaned_text$text)
+cleaned_text$text <- gsub("and|the|of|be|j’’|“|”", "", cleaned_text$text)  # Remove specific words and characters
+cleaned_text$text <- gsub("[[:punct:]]", "", cleaned_text$text)  # Remove punctuation
+cleaned_text$text <- gsub("\\s+", " ", cleaned_text$text)  # Remove extra whitespace
+
+# Tokenize the text
+words <- unlist(strsplit(cleaned_text$text, " "))
+
+# Remove empty strings and unwanted short words from the tokenized words
+unwanted_words <- c("p", "o", "ob", "s", "j", "t", "cookie", "así", "", "si")
+words <- words[words != "" & !words %in% unwanted_words]
+
+# Create word frequency table
+word_freq <- table(words)
+word_freq_df <- as.data.frame(word_freq)
+colnames(word_freq_df) <- c("word", "freq")
+
+# Filter words with a minimum frequency
+word_freq_df <- word_freq_df[word_freq_df$freq >= 50,]
+
+# Plot word cloud using ggwordcloud
+ggplot(word_freq_df, aes(label = word, size = freq, color = freq)) +
+  geom_text_wordcloud_area(rm_outside = TRUE) +  # Ensure words don't overlap and stay within bounds
+  scale_size_area(max_size = 30) +
+  scale_color_viridis_c() +  # Set color scheme for the text
+  theme_elegante() +
+  labs(title = "archivos y blogs archivoses", 
+       subtitle = "Mínima frecuencia: 50") +
+  theme(
+    plot.title = element_text(size = 20, hjust = 0.5, vjust = 1, face = "bold"),  # Centered title at the top
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "darkgrey"),  # Centered subtitle below the title
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+```
+
+
+
+```{r}
+# Modelado de Temas usando LDA
+num_temas <- 5
+modelo_lda <- LDA(dtm, k = num_temas, control = list(seed = 1234))
+terminos_lda <- terms(modelo_lda, 10)
+print(terminos_lda)
+
+```
+
+```{r}
+# Análisis de Sentimientos
+sentimientos <- get_nrc_sentiment(textos_completos)
+total_sentimientos <- colSums(sentimientos)
+total_sentimientos_df <- data.frame(Sentimiento = names(total_sentimientos), Total = total_sentimientos)
+
+```
+
+```{r}
+ggplot(total_sentimientos_df, aes(x = reorder(Sentimiento, -Total), y = Total, fill = Sentimiento)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentimientos: archivos y blogs archivoses", x = "Sentimiento", y = "Total") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold")) +
+  scale_x_discrete(labels = c("positive" = "positivo", "negative" = "negativo", "trust" = "confianza",
+                              "sadness" = "tristeza", "fear" = "miedo", "anger" = "enfado",
+                              "anticipation" = "anticipación", "disgust" = "disgusto",
+                              "surprise" = "sorpresa", "joy" = "alegría"))
+
+```
+
+```{r}
+# Calcular los porcentajes de cada sentimiento
+total_sentimientos <- colSums(sentimientos)
+total_sentimientos_df <- data.frame(Sentimiento = names(total_sentimientos), Total = total_sentimientos)
+total_sentimientos_df$Porcentaje <- (total_sentimientos_df$Total / sum(total_sentimientos_df$Total)) * 100
+
+# Graficar los sentimientos con porcentajes
+ggplot(total_sentimientos_df, aes(x = reorder(Sentimiento, -Total), y = Total, fill = Sentimiento)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentimientos: prensa y blogs españoles", x = "Sentimiento", y = "Total") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold")) +
+  scale_x_discrete(labels = c("positive" = "positivo", "negative" = "negativo", "trust" = "confianza",
+                              "sadness" = "tristeza", "fear" = "miedo", "anger" = "enfado",
+                              "anticipation" = "anticipación", "disgust" = "disgusto",
+                              "surprise" = "sorpresa", "joy" = "alegría")) +
+  geom_text(aes(label = sprintf("%.1f%%", Porcentaje)), vjust = -0.5, size = 3)
+
+```
+```{r}
+
+
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+
+# Definir las palabras adicionales a eliminar
+palabras_adicionales <- c("et al", "o o", "p p", "por ciento", "https doi", "doi org", "https doi org", "ser ser ser", "t t t", "sí sí sí", "año edad edad", "o o o", "lad claimant count")
+
+# Convertir los datos de emociones en una sola cadena de texto
+cloud_emotions_data <- c(
+  paste(textos_pdf[sentimientos$sadness > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$joy > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$anger > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$fear > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$trust > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$anticipation > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$disgust > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$surprise > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$positive > 0], collapse = " "),
+  paste(textos_pdf[sentimientos$negative > 0], collapse = " ")
+)
+
+# Crear un corpus de texto
+cloud_corpus <- Corpus(VectorSource(cloud_emotions_data))
+
+# Limpiar los datos de texto
+cloud_corpus <- cloud_corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("spanish"), palabras_adicionales)) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(content_transformer(lemmatize_strings))
+
+# Crear una matriz de términos por documento
+cloud_tdm <- TermDocumentMatrix(cloud_corpus)
+cloud_tdm <- as.matrix(cloud_tdm)
+colnames(cloud_tdm) <- c('tristeza', 'alegría', 'enfado', 'miedo', 'confianza', 'anticipación', 'disgusto', 'sorpresa', 'positivo', 'negativo')
+
+# Generar la nube de palabras
+set.seed(757)  # Se puede establecer cualquier entero
+comparison.cloud(cloud_tdm, random.order = FALSE,
+                 colors = brewer.pal(9, "Dark2"),
+                 title.size = 1.2, max.words = 1000, scale = c(4, 0.5), rot.per = 0.4)
+
+```
+
+```{r}
+
+library(tm)
+library(tidyverse)
+library(tidytext)
+library(reshape2)
+library(wordcloud)
+library(RColorBrewer)
+library(textstem)
+
+
+
+# Convertir los datos de emociones en una sola cadena de texto
+cloud_emotions_data <- c(
+  paste(textos_completos[sentimientos$sadness > 0], collapse = " "),
+  paste(textos_completos[sentimientos$joy > 0], collapse = " "),
+  paste(textos_completos[sentimientos$anger > 0], collapse = " "),
+  paste(textos_completos[sentimientos$fear > 0], collapse = " "),
+  paste(textos_completos[sentimientos$trust > 0], collapse = " "),
+  paste(textos_completos[sentimientos$anticipation > 0], collapse = " "),
+  paste(textos_completos[sentimientos$disgust > 0], collapse = " "),
+  paste(textos_completos[sentimientos$surprise > 0], collapse = " ")
+)
+
+# Crear un corpus de texto
+cloud_corpus <- Corpus(VectorSource(cloud_emotions_data))
+
+# Palabras adicionales a eliminar
+palabras_adicionales <- c("null", "eln", "futun", "medium", "...", "non", "news", "díaz", "publicidadnn", "“", "”", "", "…", "", "")
+
+# Limpiar los datos de texto
+cloud_corpus <- cloud_corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("spanish"), palabras_adicionales)) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(content_transformer(lemmatize_strings))
+
+# Crear una matriz de términos por documento
+cloud_tdm <- TermDocumentMatrix(cloud_corpus)
+cloud_tdm <- as.matrix(cloud_tdm)
+
+# Verificar cuántas emociones tienen palabras asociadas
+num_emotions <- ncol(cloud_tdm)
+emotion_labels <- c('tristeza', 'alegría', 'enfado', 'miedo', 'confianza', 'anticipación', 'disgusto', 'sorpresa')
+emotion_labels <- emotion_labels[1:num_emotions]
+
+# Asignar nombres de columnas a la matriz de términos
+colnames(cloud_tdm) <- emotion_labels
+
+# Verificar la matriz de términos por documento
+print(cloud_tdm)
+
+# Generar la nube de palabras
+set.seed(757)  # Se puede establecer cualquier entero
+comparison.cloud(cloud_tdm, random.order = FALSE,
+                 colors = brewer.pal(8, "Dark2"),
+                 title.size = 1.2, max.words = 200, scale = c(4, 0.5), rot.per = 0.4)
+
+
+```
+```{r}
+# Convertir la matriz de términos por documento a un dataframe
+tdm_df <- as.data.frame(as.table(cloud_tdm))
+colnames(tdm_df) <- c("word", "emotion", "frequency")
+
+# Ordenar el dataframe por frecuencia de palabras
+tdm_df_sorted <- tdm_df %>%
+  arrange(desc(frequency))
+
+# Mostrar las primeras filas del dataframe ordenado
+head(tdm_df_sorted, 300)
+```
+
+
+```{r}
+# Calcular los porcentajes de cada sentimiento
+total_sentimientos <- colSums(sentimientos)
+total_sentimientos_df <- data.frame(Sentimiento = names(total_sentimientos), Total = total_sentimientos)
+total_sentimientos_df$Porcentaje <- (total_sentimientos_df$Total / sum(total_sentimientos_df$Total)) * 100
+
+# Graficar los sentimientos con porcentajes
+ggplot(total_sentimientos_df, aes(x = reorder(Sentimiento, -Total), y = Total, fill = Sentimiento)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentimientos: archivos y blogs archivoses", x = "Sentimiento", y = "Total") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold")) +
+  scale_x_discrete(labels = c("positive" = "positivo", "negative" = "negativo", "trust" = "confianza",
+                              "sadness" = "tristeza", "fear" = "miedo", "anger" = "enfado",
+                              "anticipation" = "anticipación", "disgust" = "disgusto",
+                              "surprise" = "sorpresa", "joy" = "alegría")) +
+  geom_text(aes(label = sprintf("%.1f%%", Porcentaje)), vjust = -0.5, size = 3)
+
+```
+
+
+```{r}
+library(viridis)
+# Convertir el corpus a un dataframe
+comments_df <- data.frame(text = textos_completos, stringsAsFactors = FALSE)
+
+# Tokenizar los comentarios
+comments_tokens <- comments_df %>%
+  unnest_tokens(word, text)
+
+# Unir los comentarios con el sentimiento de las palabras utilizando el diccionario NRC
+comments_sentiment <- comments_tokens %>%
+  inner_join(get_sentiments("nrc"))
+
+# Filtrar palabras no deseadas
+words_to_remove <- c("sin", "trump", "assessment", "swift", "excel", "allure")
+comments_sentiment <- comments_sentiment %>%
+  filter(!word %in% words_to_remove)
+
+# Traducir los nombres de los sentimientos
+comments_sentiment$sentiment <- recode(comments_sentiment$sentiment,
+                                       "disgust" = "disgusto",
+                                       "anticipation" = "anticipación",
+                                       "anger" = "enfado",
+                                       "trust" = "confianza",
+                                       "negative" = "negativo",
+                                       "joy" = "alegría",
+                                       "fear" = "miedo",
+                                       "positive" = "positivo",
+                                       "surprise" = "sorpresa",
+                                       "sadness" = "tristeza")
+
+# Contar las palabras por sentimiento
+word_sentiment_count <- comments_sentiment %>%
+  count(word, sentiment, sort = TRUE)
+
+# Convertir los datos a un formato adecuado para comparison.cloud
+word_sentiment_matrix <- word_sentiment_count %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0)
+
+# Asignar colores a los sentimientos utilizando la paleta viridis
+sentiment_colors <- viridis_pal(option = "D")(10)
+names(sentiment_colors) <- c("disgusto", "anticipación", "enfado", "confianza",
+                             "negativo", "alegría", "miedo", "positivo", 
+                             "sorpresa", "tristeza")
+
+# Crear la nube de comparación de palabras para todos los sentimientos
+comparison.cloud(word_sentiment_matrix,
+                 colors = sentiment_colors,
+                 max.words = 200,
+                 scale = c(3, 0.4), # Ajustar el tamaño de las palabras
+                 random.order = FALSE,
+                 title.size = 1.2,
+                 rot.per = 0.1, # Reducir la rotación para mayor legibilidad
+                 use.r.layout = FALSE,
+                 family = "Arial",
+                 font = 2)
+```
+
+
+
+```{r}
+# Análisis de Sentimientos usando diferentes léxicos
+vector_syuzhet <- get_sentiment(textos_completos, method = "syuzhet")
+vector_bing <- get_sentiment(textos_completos, method = "bing")
+vector_afinn <- get_sentiment(textos_completos, method = "afinn")
+
+```
+
+```{r}
+# Combinar puntajes de sentimientos en un data frame
+df_sentimientos <- data.frame(syuzhet = vector_syuzhet, bing = vector_bing, afinn = vector_afinn, id_doc = 1:length(vector_syuzhet))
+sentimientos_melt <- df_sentimientos %>%
+  pivot_longer(cols = -id_doc, names_to = "metodo", values_to = "puntaje")
+
+# Graficar puntajes de sentimientos sobre documentos
+ggplot(sentimientos_melt, aes(x = id_doc, y = puntaje, color = metodo)) +
+  geom_line() +
+  labs(title = "Puntajes de Sentimientos a lo Largo de Documentos", x = "ID de Documento", y = "Puntaje de Sentimiento") +
+  theme_minimal()
+
+```
+
+```{r}
+# Visualizar Sentimientos a Través de Diferentes Métodos
+par(mfrow = c(3, 1))
+plot(vector_syuzhet, type = "l", main = "Trayectoria del Sentimiento Syuzhet", xlab = "ID de Documento", ylab = "Puntaje de Sentimiento")
+plot(vector_bing, type = "l", main = "Trayectoria del Sentimiento Bing", xlab = "ID de Documento", ylab = "Puntaje de Sentimiento")
+plot(vector_afinn, type = "l", main = "Trayectoria del Sentimiento Afinn", xlab = "ID de Documento", ylab = "Puntaje de Sentimiento")
+
+```
+
+```{r}
+# Crear gráfico de barras para comparar sentimientos entre métodos
+ggplot(sentimientos_melt, aes(x = metodo, y = puntaje, fill = metodo)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Comparación de Métodos de Sentimiento", x = "Método", y = "Puntaje de Sentimiento") +
+  theme_classic()
+
+```
+
+```{r}
+# Eliminar términos escasos para reducir el ruido y la dimensionalidad
+dtm_escaso <- removeSparseTerms(dtm, 0.99)
+dtm_escaso_matriz <- as.matrix(dtm_escaso)
+
+# Determinar el número óptimo de clusters usando el método del codo
+fviz_nbclust(dtm_escaso_matriz, kmeans, method = "wss")
+
+# Aplicar k-means clustering con un número óptimo de clusters (por ejemplo, k = 3)
+set.seed(1234)
+num_clusters <- 3
+resultado_kmeans <- kmeans(dtm_escaso_matriz, centers = num_clusters, nstart = 25)
+
+# Verificar la cantidad de documentos y clusters
+print(length(textos_completos))  # Verifica la cantidad de documentos
+print(length(resultado_kmeans$cluster))  # Verifica la cantidad de clusters
+
+# Añadir las asignaciones de clusters a los datos originales
+clusters_texto <- data.frame(texto = textos_completos, cluster = resultado_kmeans$cluster)
+
+# Imprimir el resultado del clustering
+print(clusters_texto)
+
+# Visualizar el resultado del clustering usando PCA
+pca <- prcomp(dtm_escaso_matriz, scale. = TRUE)
+pca_datos <- data.frame(pca$x, cluster = as.factor(resultado_kmeans$cluster))
+
+ggplot(pca_datos, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point() +
+  labs(title = "PCA de Clusters de Documentos", x = "Componente Principal 1", y = "Componente Principal 2") +
+  theme_minimal()
+
+# Visualizar el resultado del clustering usando t-SNE
+# Eliminar duplicados antes de aplicar t-SNE
+dtm_escaso_matriz_unica <- unique(dtm_escaso_matriz)
+
+set.seed(1234)
+tsne_result <- Rtsne(dtm_escaso_matriz_unica, dims = 2, perplexity = 30, verbose = TRUE, max_iter = 500)
+tsne_datos <- data.frame(tsne_result$Y, cluster = as.factor(resultado_kmeans$cluster[!duplicated(dtm_escaso_matriz)]))
+
+ggplot(tsne_datos, aes(x = X1, y = X2, color = cluster)) +
+  geom_point() +
+  labs(title = "t-SNE de Clusters de Documentos", x = "Dimensión 1", y = "Dimensión 2") +
+  theme_minimal()
+
+# Visualización adicional del clustering
+ggplot(pca_datos, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "Clustering de Documentos por K-means", x = "Componente Principal 1", y = "Componente Principal 2") +
+  theme_minimal()
+
+```
+
+```{r}
+# Definir stopwords adicionales, incluyendo términos a excluir
+stopwords_adicionales <- c("votar positivo", "visitas ves", "respuestas votar", "votos positivos", "puede ser", "respuestas votar positivo", "visitas ver votos", "ver votos positivos", "presente años relacionada", "votos positivos respuesta", "positivos respuestas votar", "ver elementos compartidos", "positivos ver elementos", "votos positivos respuesta", "ver elemento compartido", "respuesta solicitada", "relacionada cómo", "visitas ver", "cada vez", "k visitas", "ver ver", "años relacionada cómo", "k visitas ver", "visitas ver ver", "visitas ver respuestas", "visitas ver voto", "ver voto positivo", "ver ver elementos", "ver elementos compartidos", "años relacionada cómo", "política cookie")
+
+# Limpiar los datos de texto con las stopwords adicionales
+corpus_limpio <- corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("spanish"), stopwords_adicionales)) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(content_transformer(lemmatize_strings))
+
+# Combinar todo el texto limpio en un solo data frame
+texto_limpio <- data.frame(text = sapply(corpus_limpio, as.character), stringsAsFactors = FALSE)
+
+```
+
+```{r}
+# Tokenizar el texto en bigramas
+bigramas <- texto_limpio %>%
+  unnest_tokens(bigrama, text, token = "ngrams", n = 2)
+
+# Contar la frecuencia de cada bigrama
+frecuencia_bigramas <- bigramas %>%
+  count(bigrama, sort = TRUE)
+
+# Eliminar bigramas no deseados
+frecuencia_bigramas <- frecuencia_bigramas %>%
+  filter(!bigrama %in% c("política cookie", "i httpswwwlavanguardiacomvidaelparodelargaduracionafectaalasaludmentalsegunestudiodelacaixahtml", "estudio caixa"))
+
+# Filtrar para mantener solo los 20 principales bigramas
+top_bigramas <- frecuencia_bigramas %>%
+  top_n(20, wt = n)
+
+# Visualizar los 20 principales bigramas sin leyenda
+ggplot(top_bigramas, aes(x = reorder(bigrama, n), y = n, fill = reorder(bigrama, n))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 20 bigramas: archivos y blogs archivoses", x = "Bigrama", y = "Frecuencia") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold"),
+        legend.position = "none",
+        plot.title = element_text(size = 12))  # Ajustar el tamaño del título del gráfico
+
+# Tokenizar el texto en trigramas
+trigramas <- texto_limpio %>%
+  unnest_tokens(trigrama, text, token = "ngrams", n = 3)
+
+# Contar la frecuencia de cada trigrama
+frecuencia_trigramas <- trigramas %>%
+  count(trigrama, sort = TRUE)
+
+# Eliminar trigramas no deseados
+frecuencia_trigramas <- frecuencia_trigramas %>%
+  filter(!trigrama %in% c("según estudio caixa"))
+
+# Filtrar para mantener solo los 20 principales trigramas
+top_trigramas <- frecuencia_trigramas %>%
+  top_n(20, wt = n)
+
+# Visualizar los 20 principales trigramas sin leyenda
+ggplot(top_trigramas, aes(x = reorder(trigrama, n), y = n, fill = reorder(trigrama, n))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 20 trigramas: archivos y blogs archivoses", x = "Trigrama", y = "Frecuencia") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold"),
+        legend.position = "none",
+        plot.title = element_text(size = 12))  # Ajustar el tamaño del título del gráfico
+```
+
+```{r}
+# Tokenizar el texto en bigramas
+bigramas <- texto_limpio %>%
+  unnest_tokens(bigrama, text, token = "ngrams", n = 2)
+
+# Separar los bigramas en dos columnas
+bigramas_separados <- bigramas %>%
+  separate(bigrama, into = c("palabra1", "palabra2"), sep = " ")
+
+# Contar la frecuencia de cada bigrama
+frecuencia_bigramas <- bigramas_separados %>%
+  count(palabra1, palabra2, sort = TRUE)
+
+# Filtrar para mantener solo los 50 principales bigramas para la visualización
+top_bigramas <- frecuencia_bigramas %>%
+  top_n(50, wt = n)
+
+# Crear un objeto de grafo usando igraph
+grafo_bigramas <- graph_from_data_frame(top_bigramas)
+
+# Graficar la red de bigramas usando ggraph
+set.seed(1234)
+ggraph(grafo_bigramas, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n, edge_width = n), edge_colour = "lightpink") +
+  geom_node_point(size = 5, color = "lightgreen") +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+  theme_void() +
+  labs(title = "Red de Bigramas del Corpus de Texto")
+
+# Para trigramas (opcional)
+# Tokenizar el texto en trigramas
+trigramas <- texto_limpio %>%
+  unnest_tokens(trigrama, text, token = "ngrams", n=3)
+
+# Separar los trigramas en tres columnas
+trigramas_separados <- trigramas %>%
+  separate(trigrama, into = c("palabra1", "palabra2", "palabra3"), sep = " ")
+
+# Contar la frecuencia de cada trigrama
+frecuencia_trigramas <- trigramas_separados %>%
+  count(palabra1, palabra2, palabra3, sort = TRUE)
+
+# Filtrar para mantener solo los 50 principales trigramas para la visualización
+top_trigramas <- frecuencia_trigramas %>%
+  top_n(50, wt = n)
+
+# Crear un objeto de grafo usando igraph
+grafo_trigramas <- graph_from_data_frame(top_trigramas, directed = TRUE)
+
+# Graficar la red de trigramas usando ggraph
+set.seed(1234)
+ggraph(grafo_trigramas, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n, edge_width = n), arrow = arrow(type = "closed", length = unit(0.15, "inches")), edge_colour = "yellow") +
+  geom_node_point(size = 5, color = "coral") +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+  theme_void() +
+  labs(title = "Red de Trigramas del Corpus de Texto")
+
+```
+
+```{r}
+
+# Lista de palabras no deseadas
+palabras_no_deseadas <- c("web", "utiliza", "httpswwwotromundoesposiblenetlaprecariedadlaboralpuedeserigualopeorqueldesempleo", "cookie", "plugin", "míriam", "aguilar", "anna", "berruezo", "httpswwwlavanguardiacomvidaelparodelargaduracionafectaalasaludmentalsegunestudiodelacaixahtml", "i", "mireia", "pintó")
+
+# Tokenizar el texto en bigramas
+bigrams <- texto_limpio %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Separar los bigramas en dos columnas y filtrar las palabras no deseadas
+bigrams_separated <- bigrams %>%
+  separate(bigram, into = c("word1", "word2"), sep = " ") %>%
+  filter(!word1 %in% palabras_no_deseadas & !word2 %in% palabras_no_deseadas)
+
+# Contar la frecuencia de cada bigrama
+bigram_counts <- bigrams_separated %>%
+  count(word1, word2, sort = TRUE)
+
+# Filtrar para mantener solo los 40 principales bigramas
+top_bigrams <- bigram_counts %>%
+  top_n(40, wt = n)
+
+# Crear un objeto gráfico usando igraph
+bigram_graph <- graph_from_data_frame(top_bigrams)
+
+# Graficar la red de bigramas usando ggraph
+set.seed(1234)
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), edge_width = 0.5, edge_colour = "red3",  
+                 arrow = arrow(type = "closed", length = unit(0.2, "inches"))) +
+  geom_node_point(size = 5, color = "darkolivegreen3") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+  theme_void() +
+  labs(title = "archivos y blogs archivoses", 
+       subtitle = "Top 40")
+
+# Tokenizar el texto en trigramas
+trigrams <- texto_limpio %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3)
+
+# Separar los trigramas en tres columnas y filtrar las palabras no deseadas
+trigrams_separated <- trigrams %>%
+  separate(trigram, into = c("word1", "word2", "word3"), sep = " ") %>%
+  filter(!word1 %in% palabras_no_deseadas & !word2 %in% palabras_no_deseadas & !word3 %in% palabras_no_deseadas)
+
+# Contar la frecuencia de cada trigrama
+trigram_counts <- trigrams_separated %>%
+  count(word1, word2, word3, sort = TRUE)
+
+# Filtrar para mantener solo los 40 principales trigramas
+top_trigrams <- trigram_counts %>%
+  top_n(40, wt = n)
+
+# Crear un objeto gráfico usando igraph
+trigram_graph <- graph_from_data_frame(top_trigrams, directed = TRUE)
+
+# Graficar la red de trigramas usando ggraph
+set.seed(1234)
+ggraph(trigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), edge_width = 0.5, 
+                 arrow = arrow(type = "closed", length = unit(0.2, "inches")), 
+                 edge_colour = "sienna") +  
+  geom_node_point(size = 5, color = "steelblue3") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+  theme_void() +
+  labs(title = "archivos y blogs archivoses", 
+       subtitle = "Top 40")
+
+
+```
+
+```{r}
+library(viridis)
+# Combine all cleaned text into a single data frame
+texto_limpio <- data.frame(text = sapply(corpus_limpio, as.character), stringsAsFactors = FALSE)
+
+# Remove unwanted characters (".", "...", "'", "’", "s", "·", "“”, etc.)
+texto_limpio$text <- gsub("[\\.]{2,}", "", texto_limpio$text)  # Remove multiple dots
+texto_limpio$text <- gsub("'", "", texto_limpio$text)
+texto_limpio$text <- gsub("’", "", texto_limpio$text)
+texto_limpio$text <- gsub("·", "", texto_limpio$text)
+texto_limpio$text <- gsub("and|the|of|be|in|j’’|“|”|si|cookie|", "", texto_limpio$text)  # Remove specific words and characters
+texto_limpio$text <- gsub("[[:punct:]]", "", texto_limpio$text)  # Remove punctuation
+texto_limpio$text <- gsub("\\s+", " ", texto_limpio$text)  # Remove extra whitespace
+
+# Tokenize the text
+words <- unlist(strsplit(texto_limpio$text, " "))
+
+# Remove empty strings from the tokenized words
+words <- words[words != ""]
+
+# Create word frequency table
+word_freq <- table(words)
+
+set.seed(175)
+# Plot word cloud of most frequent words with viridis colors
+wordcloud(words = names(word_freq), freq = word_freq, min.freq = 30, 
+          scale = c(5, 0.3), colors = viridis(100), rotate.per = FALSE)
+
+
+```
+
+
+
+```{r}
+# Supongamos que `clean_corpus` es tu corpus de texto limpio
+
+# Combinar todo el texto limpio en un solo data frame
+texto_limpio <- data.frame(text = sapply(corpus_limpio, as.character), stringsAsFactors = FALSE)
+
+# Remover caracteres no deseados (".", "...", "'", "’", "s", "·")
+texto_limpio$text <- gsub("\\.", "", texto_limpio$text)
+texto_limpio$text <- gsub("\\.\\.\\.", "", texto_limpio$text)
+texto_limpio$text <- gsub("'", "", texto_limpio$text)
+texto_limpio$text <- gsub("’", "", texto_limpio$text)
+texto_limpio$text <- gsub("·", "", texto_limpio$text)
+
+# Tokenizar el texto
+palabras <- unlist(strsplit(texto_limpio$text, " "))
+
+# Remover cadenas vacías de las palabras tokenizadas
+palabras <- palabras[palabras != ""]
+
+# Crear una tabla de frecuencia de palabras
+frecuencia_palabras <- table(palabras)
+
+# Graficar nube de palabras de las palabras más frecuentes
+wordcloud(words = names(frecuencia_palabras), freq = frecuencia_palabras, min.freq = 200, 
+          scale=c(5, 0.5), colors=brewer.pal(8, "Dark2"))
+
+# Análisis de sentimientos usando syuzhet
+sentimientos <- get_nrc_sentiment(as.character(texto_limpio$text))
+
+# Sumarizar las emociones
+conteo_emociones <- colSums(sentimientos[, 1:8])
+
+# Crear un dataframe para facilitar la visualización
+emociones_df <- data.frame(emocion = names(conteo_emociones), conteo = conteo_emociones)
+
+# Crear un gráfico de barras para las emociones
+ggplot(emociones_df, aes(x = reorder(emocion, -conteo), y = conteo)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Distribución de Emociones en los Textos de PDFs",
+       x = "Emoción", y = "Conteo") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+```
+
+
+```{r}
+# Convertir el texto limpio en un data frame para tidytext
+texto_limpio_df <- data.frame(text = clean_text, stringsAsFactors = FALSE)
+
+# Tokenizar el texto en bigramas
+bigramas <- texto_limpio_df %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Separar los bigramas en dos columnas
+bigram_separated <- bigramas %>%
+  separate(bigram, into = c("palabra1", "palabra2"), sep = " ")
+
+# Lista de palabras a eliminar
+stopwords_custom <- c("patrocinado", "jetbrains", "conectar", "ci", "herramienta", "idenativo", "cicd", "pipeline", "completar", "en el momento")
+
+# Filtrar los bigramas que no contienen las palabras a eliminar
+bigram_filtered <- bigram_separated %>%
+  filter(!palabra1 %in% stopwords_custom & !palabra2 %in% stopwords_custom)
+
+# Contar la frecuencia de los bigramas
+bigram_freq <- bigram_filtered %>%
+  count(palabra1, palabra2, sort = TRUE) %>%
+  filter(n >= 60) # Frecuencia mínima de bigramas
+
+# Crear el gráfico de red
+set.seed(175)
+grafo <- graph_from_data_frame(bigram_freq, directed = FALSE)
+
+# Visualizar el gráfico de red
+ggraph(grafo, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n, edge_width = n), edge_colour = "darkgrey") +
+  geom_node_point(color = "skyblue", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 5, color = "black") +
+  theme_void() +
+  labs(title = "Red de Bigramas en los Textos de PDFs",
+       subtitle = "Bigramas con una frecuencia mayor o igual a 60",
+       caption = "Fuente: Textos de los PDFs adjuntados") +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 10),
+        plot.caption = element_text(size = 8))
+
+```
+
+
+
+```{r}
+# Función para crear matriz de concurrencia
+create_cooccurrence_matrix <- function(dtm) {
+  dtm_matrix <- as.matrix(dtm)
+  term_matrix <- t(dtm_matrix) %*% dtm_matrix
+  term_matrix[lower.tri(term_matrix, diag = TRUE)] <- 0
+  term_matrix
+}
+
+# Crear la matriz de concurrencia
+cooccurrence_matrix <- create_cooccurrence_matrix(dtm)
+
+# Convertir la matriz de concurrencia en un dataframe
+cooccurrence_df <- as.data.frame(as.table(cooccurrence_matrix))
+colnames(cooccurrence_df) <- c("term1", "term2", "frequency")
+
+# Filtrar términos con concurrencia baja y eliminar caracteres no deseados
+caracteres_no_deseados <- c("–", "’", "‘", "−", "⁎", "…", "*", "“", "”", "	")
+
+cooccurrence_df <- cooccurrence_df %>%
+  filter(frequency > 300) %>%
+  filter(!term1 %in% caracteres_no_deseados & !term2 %in% caracteres_no_deseados)
+
+# Crear un grafo a partir de la matriz de concurrencia
+cooccurrence_graph <- graph_from_data_frame(cooccurrence_df, directed = FALSE)
+
+# Aumentar la transparencia de las líneas y ajustar el tamaño del grafo
+set.seed(175)  # Asegura la reproducibilidad
+ggraph(cooccurrence_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = frequency, edge_width = frequency), color = "pink3", show.legend = TRUE) +
+  geom_node_point(color = "springgreen3", size = 4) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +  # Usar repel para mejorar la distribución de etiquetas
+  scale_edge_width_continuous(name = "n") +
+  scale_edge_alpha_continuous(name = "n") +
+  theme_void() +
+  labs(title = "archivos y blogs archivoses", 
+       subtitle = "Frecuencia > 300") +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        plot.subtitle = element_text(size = 10),
+        plot.caption = element_text(size = 8, hjust = 1))
+
+
+```
+
+```{r}
+library(textmineR)
+```
+
+
+```{r}
+
+library(wordcloud2)
+```
+
+```{r}
+# Convertir el corpus a una matriz de términos de documentos (Term-Document Matrix)
+tdm <- TermDocumentMatrix(corpus_limpio)
+matrix <- as.matrix(tdm)
+words <- sort(rowSums(matrix), decreasing = TRUE)
+df <- data.frame(word = names(words), freq = words)
+
+# Definir la paleta de colores
+colors <- brewer.pal(8, "Dark2")  # Puedes elegir una paleta diferente de RColorBrewer
+
+# Generar la nube de palabras con mejoras estéticas
+wordcloud2(slice_max(df, order_by = freq, n = 200), 
+           size = 0.7,        # Tamaño general de las palabras
+           color = colors,    # Paleta de colores
+           backgroundColor = "white",  # Fondo blanco
+           fontWeight = "bold",        # Fuente en negrita
+           shape = 'circle',           # Forma de la nube de palabras
+           ellipticity = 0.65          # Escala de la nube
+)
+df
+```
+```{r}
+# Suponiendo que clean_corpus ya está creado
+
+# Convertir el corpus a una matriz de términos de documentos (Term-Document Matrix)
+tdm <- TermDocumentMatrix(corpus_limpio)
+matrix <- as.matrix(tdm)
+words <- sort(rowSums(matrix), decreasing = TRUE)
+df <- data.frame(word = names(words), freq = words)
+
+# Definir caracteres a eliminar
+chars_to_remove <- c("’", "…", "–", "“", "”", "…", "”", "…", "", "httpswwwlavanguardiacomvidaelparodelargaduracionafectaalasaludmentalsegunestudiodelacaixahtml", "•", "cookie")
+
+# Filtrar el dataframe para eliminar los caracteres no deseados
+df <- df[!df$word %in% chars_to_remove, ]
+
+# Definir la paleta de colores
+colors <- brewer.pal(8, "Dark2")  # Puedes elegir una paleta diferente de RColorBrewer
+
+# Generar la nube de palabras con mejoras estéticas
+wordcloud2(slice_max(df, order_by = freq, n = 200), 
+           size = 0.7,        # Tamaño general de las palabras
+           color = colors,    # Paleta de colores
+           backgroundColor = "white",  # Fondo blanco
+           fontWeight = "bold",        # Fuente en negrita
+           shape = 'circle',           # Forma de la nube de palabras
+           ellipticity = 0.65          # Escala de la nube
+)
+
+```
