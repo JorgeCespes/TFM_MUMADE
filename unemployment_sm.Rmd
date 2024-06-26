@@ -1,0 +1,514 @@
+---
+title: "unemployment_sm"
+author: "Jorge Céspedes Rico"
+date: "2024-05-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pdftools)
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(topicmodels)
+library(textstem)
+library(dplyr)
+library(tidyr)
+library(tidytext)
+library(igraph)
+library(ggraph)
+library(cluster)
+library(factoextra)
+library(Rtsne)
+
+```
+
+```{r}
+theme_elegante <- function(base_size = 10,
+                           base_family = "Raleway"
+                           )
+    {
+    color.background = "#FFFFFF" # Chart Background
+    color.grid.major = "#D9D9D9" # Chart Gridlines
+    color.axis.text = "#666666" # 
+    color.axis.title = "#666666" # 
+    color.title = "#666666"
+    color.subtitle = "#666666"
+    strip.background.color = '#9999CC'
+    
+    ret <-
+        theme_bw(base_size=base_size) +
+        
+        # Set the entire chart region to a light gray color
+        theme(panel.background=element_rect(fill=color.background, color=color.background)) +
+        theme(plot.background=element_rect(fill=color.background, color=color.background)) +
+        theme(panel.border=element_rect(color=color.background)) +
+        
+        # Format the grid
+        theme(panel.grid.major=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(panel.grid.minor=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(axis.ticks=element_blank()) +
+        
+        # Format the legend, but hide by default
+        theme(legend.position="none") +
+        theme(legend.background = element_rect(fill=color.background)) +
+        theme(legend.text = element_text(size=base_size-3,color=color.axis.title, family = base_family)) +
+        
+        theme(strip.text.x = element_text(size=base_size,color=color.background, family = base_family)) +
+        theme(strip.text.y = element_text(size=base_size,color=color.background, family = base_family)) +
+        #theme(strip.background = element_rect(fill=strip.background.color, linetype="blank")) +
+        theme(strip.background = element_rect(fill = "grey70", colour = NA)) +
+        # theme(panel.border= element_rect(fill = NA, colour = "grey70", size = rel(1)))+
+        # Set title and axis labels, and format these and tick marks
+        theme(plot.title=element_text(color=color.title, 
+                                      size=20, 
+                                      vjust=1.25, 
+                                      family=base_family, 
+                                      hjust = 0.5
+                                      )) +
+        
+        theme(plot.subtitle=element_text(color=color.subtitle, size=base_size+2, family = base_family,  hjust = 0.5))  +
+        
+        theme(axis.text.x=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(axis.text.y=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(text=element_text(size=base_size, color=color.axis.text, family = base_family)) +
+        
+        theme(axis.title.x=element_text(size=base_size+2,color=color.axis.title, vjust=0, family = base_family)) +
+        theme(axis.title.y=element_text(size=base_size+2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        theme(plot.caption=element_text(size=base_size-2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        
+        # Legend  
+        theme(legend.text=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.title=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.key=element_rect(colour = color.background, fill = color.background)) +
+        theme(legend.position="bottom", 
+              legend.box = "horizontal", 
+              legend.title = element_blank(),
+              legend.key.width = unit(.75, "cm"),
+              legend.key.height = unit(.75, "cm"),
+              legend.spacing.x = unit(.25, 'cm'),
+              legend.spacing.y = unit(.25, 'cm'),
+              legend.margin = margin(t=0, r=0, b=0, l=0, unit="cm")) +
+
+        # Plot margins
+        theme(plot.margin = unit(c(.5, .5, .5, .5), "cm"))
+    
+    ret
+}
+```
+
+
+
+```{r}
+# Listar todos los archivos PDF en el directorio de trabajo
+files <- list.files(pattern = "pdf$")
+files
+```
+
+```{r}
+# Aplicar la función pdf_text a cada archivo PDF
+unemployment <- lapply(files, pdf_text)
+```
+
+```{r}
+# Combinar todos los textos en un único vector de caracteres
+unemployment_text <- unlist(unemployment)
+```
+
+```{r}
+# Crear un corpus de texto a partir del texto extraído
+corpus <- Corpus(VectorSource(unemployment_text))
+```
+
+```{r}
+# Limpiar los datos de texto
+additional_stopwords <- c("et al", "o o", "p p", "per cent", "https doi", "doi org", "https doi org", "be be be", "t t t", "yes yes yes", "yr yr yr", "p p p ", "age age age", "o o o", "lad claimant count")
+clean_corpus <- corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("english"), additional_stopwords)) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(content_transformer(lemmatize_strings))
+```
+
+```{r}
+# Create a Document-Term Matrix (DTM)
+dtm <- DocumentTermMatrix(clean_corpus)
+```
+
+```{r}
+
+
+# Calculate Term Frequency-Inverse Document Frequency (TF-IDF)
+tfidf <- weightTfIdf(dtm)
+tfidf_matrix <- as.matrix(tfidf)
+```
+
+```{r}
+# Calcular la suma de TF-IDF para cada término
+top_terms <- sort(colSums(tfidf_matrix), decreasing = TRUE)
+```
+
+```{r}
+# Convertir a un data frame
+top_terms_df <- data.frame(term = names(top_terms), tfidf = top_terms)
+
+# Filtrar los términos específicos y aquellos que contienen "..." o "'" o "’"
+top_terms_df <- top_terms_df %>%
+  filter(!term %in% c("⁎", "−", "yes", "std", "unstd", "ref", "swb", "pwb", "almps", "–", "þβ")) %>%
+  filter(!grepl("\\.\\.\\.", term)) %>%  # Filtrar términos que contienen "..."
+  filter(!grepl("'", term)) %>%  # Filtrar términos que contienen "'"
+  filter(!grepl("’", term)) %>%  # Filtrar términos que contienen "’"
+  arrange(desc(tfidf)) %>%
+  head(15)
+```
+
+
+```{r}
+# Imprimir el data frame resultante
+print(top_terms_df)
+
+# Plot the top terms by TF-IDF with a different color palette
+ggplot(top_terms_df, aes(x = reorder(term, tfidf), y = tfidf, fill = term)) +
+  geom_bar(stat = "identity", color = "black") +
+  labs(title = "Top 15 términos: Unemployment and MH", subtitle = "Literatura en inglés", x = "Término", y = "TF-IDF") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1), legend.position = "none", 
+        axis.title.x = element_text(face = "bold"),  
+        axis.title.y = element_text(face = "bold"))
+```
+
+```{r}
+# Topic Modeling using LDA
+num_topics <- 5
+lda_model <- LDA(dtm, k = num_topics, control = list(seed = 1234))
+lda_terms <- terms(lda_model, 10)
+print(lda_terms)
+
+```
+
+```{r}
+# Eliminar términos escasos para reducir el ruido y la dimensionalidad
+dtm_sparse <- removeSparseTerms(dtm, 0.99)
+dtm_sparse_matrix <- as.matrix(dtm_sparse)
+
+# Determinar el número óptimo de clusters usando el método del codo
+fviz_nbclust(dtm_sparse_matrix, kmeans, method = "wss")
+
+# Aplicar k-means clustering con un número óptimo de clusters (por ejemplo, k = 3)
+set.seed(1234)
+num_clusters <- 3
+kmeans_result <- kmeans(dtm_sparse_matrix, centers = num_clusters, nstart = 25)
+
+# Verificar la cantidad de documentos y clusters
+print(length(unemployment_text))  # Verifica la cantidad de documentos
+print(length(kmeans_result$cluster))  # Verifica la cantidad de clusters
+
+# Añadir las asignaciones de clusters a los datos originales
+unemployment_clusters <- data.frame(text = unemployment_text, cluster = kmeans_result$cluster)
+
+# Imprimir el resultado del clustering
+print(unemployment_clusters)
+
+# Visualizar el resultado del clustering usando PCA
+pca <- prcomp(dtm_sparse_matrix, scale. = TRUE)
+pca_data <- data.frame(pca$x, cluster = as.factor(kmeans_result$cluster))
+
+ggplot(pca_data, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point() +
+  labs(title = "PCA of Document Clusters", x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal()
+
+# Visualizar el resultado del clustering usando t-SNE
+# Eliminar duplicados antes de aplicar t-SNE
+dtm_sparse_matrix_unique <- unique(dtm_sparse_matrix)
+
+set.seed(1234)
+tsne_result <- Rtsne(dtm_sparse_matrix_unique, dims = 2, perplexity = 5, verbose = TRUE, max_iter = 500)
+tsne_data <- data.frame(tsne_result$Y, cluster = as.factor(kmeans_result$cluster[match(rownames(dtm_sparse_matrix_unique), rownames(dtm_sparse_matrix))]))
+colnames(tsne_data) <- c("Dim1", "Dim2", "cluster")
+
+ggplot(tsne_data, aes(x = Dim1, y = Dim2, color = cluster)) +
+  geom_point() +
+  labs(title = "t-SNE of Document Clusters", x = "Dimension 1", y = "Dimension 2") +
+  theme_minimal()
+```
+
+```{r}
+library(viridis)
+# Combine all cleaned text into a single data frame
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Remove unwanted characters (".", "...", "'", "’", "s", "·", "“”, etc.)
+cleaned_text$text <- gsub("[\\.]{2,}", "", cleaned_text$text)  # Remove multiple dots
+cleaned_text$text <- gsub("'", "", cleaned_text$text)
+cleaned_text$text <- gsub("’", "", cleaned_text$text)
+cleaned_text$text <- gsub("·", "", cleaned_text$text)
+cleaned_text$text <- gsub("and|the|of|be|j’’|“|”", "", cleaned_text$text)  # Remove specific words and characters
+cleaned_text$text <- gsub("[[:punct:]]", "", cleaned_text$text)  # Remove punctuation
+cleaned_text$text <- gsub("\\s+", " ", cleaned_text$text)  # Remove extra whitespace
+
+# Tokenize the text
+words <- unlist(strsplit(cleaned_text$text, " "))
+
+# Remove empty strings and unwanted short words from the tokenized words
+unwanted_words <- c("p", "o", "ob", "s", "j", "t")
+words <- words[words != "" & !words %in% unwanted_words]
+
+# Create word frequency table
+word_freq <- table(words)
+
+# Plot word cloud of most frequent words with viridis colors
+wordcloud(words = names(word_freq), freq = word_freq, min.freq = 150,
+          scale = c(5, 0.3), colors = viridis(100), rotate.per = FALSE)
+
+# Add title and note
+title("Word Cloud for TFM", adj = 0, line = -1, cex.main = 1.5)
+mtext("Minimum frequency: 150 words", side = 1, line = 5, adj = 1, cex = 0.7, col = "darkgrey")
+
+
+
+
+```
+
+
+```{r}
+library(ggwordcloud)
+# Combine all cleaned text into a single data frame
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Remove unwanted characters (".", "...", "'", "’", "s", "·", "“”, etc.)
+cleaned_text$text <- gsub("[\\.]{2,}", "", cleaned_text$text)  # Remove multiple dots
+cleaned_text$text <- gsub("'", "", cleaned_text$text)
+cleaned_text$text <- gsub("’", "", cleaned_text$text)
+cleaned_text$text <- gsub("·", "", cleaned_text$text)
+cleaned_text$text <- gsub("and|the|of|be|j’’|“|”", "", cleaned_text$text)  # Remove specific words and characters
+cleaned_text$text <- gsub("[[:punct:]]", "", cleaned_text$text)  # Remove punctuation
+cleaned_text$text <- gsub("\\s+", " ", cleaned_text$text)  # Remove extra whitespace
+
+# Tokenize the text
+words <- unlist(strsplit(cleaned_text$text, " "))
+
+# Remove empty strings and unwanted short words from the tokenized words
+unwanted_words <- c("p", "o", "ob", "s", "j", "t")
+words <- words[words != "" & !words %in% unwanted_words]
+
+# Create word frequency table
+word_freq <- table(words)
+word_freq_df <- as.data.frame(word_freq)
+colnames(word_freq_df) <- c("word", "freq")
+
+# Filter words with a minimum frequency
+word_freq_df <- word_freq_df[word_freq_df$freq >= 150,]
+
+# Plot word cloud using ggwordcloud
+ggplot(word_freq_df, aes(label = word, size = freq, color = freq)) +
+  geom_text_wordcloud_area(rm_outside = TRUE) +  # Ensure words don't overlap and stay within bounds
+  scale_size_area(max_size = 30) +
+  scale_color_viridis_c() +  # Set color scheme for the text
+  theme_elegante() +
+  labs(title = "Unemployment and MH:lit. ENG", 
+       subtitle_1 = "Mínima frecuencia: 150") +
+  theme(
+    plot.title = element_text(size = 20, hjust = 0.5, vjust = 1, face = "bold"),  # Centered title at the top
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "darkgrey"),  # Centered subtitle below the title
+    plot.margin = margin(10, 10, 10, 10)
+  )
+```
+
+
+```{r}
+
+library(tidyverse)
+library(tidytext)
+
+# Combina todo el texto limpiado en un único marco de datos
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Tokeniza el texto en bigramas
+bigrams <- cleaned_text %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Cuenta la frecuencia de cada bigrama
+bigram_counts <- bigrams %>%
+  count(bigram, sort = TRUE)
+
+# Filtra los bigramas no deseados
+bigram_counts_filtered <- bigram_counts %>%
+  filter(!bigram %in% c("p p", "https doi", "doi org", "t t", "o o", "be be", "yes yes"))
+
+# Filtra para mantener solo los 20 bigramas más frecuentes
+top_bigrams <- bigram_counts_filtered %>%
+  top_n(20, wt = n)
+
+# Visualiza los 20 bigramas más frecuentes sin leyenda
+ggplot(top_bigrams, aes(x = reorder(bigram, n), y = n, fill = reorder(bigram, n))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 20 bigramas: Unemployment and MH", subtitle = "Literatura en inglés", x = "Bigrama", y = "Frecuencia") +
+  theme_elegante() +                      # Aplica el tema elegante
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +  # Rota las etiquetas del eje x y elimina la leyenda
+  theme(axis.title.x = element_text(face = "bold"),   # Pone en negrita el título del eje x
+        axis.title.y = element_text(face = "bold"),   # Pone en negrita el título del eje y
+        plot.title = element_text(size = 14),         # Ajusta el tamaño del título del gráfico
+        plot.subtitle = element_text(size = 10))      # Ajusta el tamaño del subtítulo
+
+# Tokeniza el texto en trigrams
+trigrams <- cleaned_text %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3)
+
+# Cuenta la frecuencia de cada trigram
+trigram_counts <- trigrams %>%
+  count(trigram, sort = TRUE)
+
+# Filtra los trigrams no deseados
+trigram_counts_filtered <- trigram_counts %>%
+  filter(!trigram %in% c("https doi org", "be be be", "yes yes yes", "yr yr yr", "p p p", "age age age", "ppi age year", "t t t", "j environ res", "int j environ", "environ res public", "claimant count rate", "res public health", "publisher ltd journal", "macmillan publisher ltd", "ltd journal public", "claimant count ratw"))
+
+# Filtra para mantener solo los 20 trigrams más frecuentes
+top_trigrams <- trigram_counts_filtered %>%
+  top_n(20, wt = n)
+
+ggplot(top_trigrams, aes(x = reorder(trigram, n), y = n, fill = reorder(trigram, n))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 20 trigrams: Unemployment and MH", subtitle = "Literatura en inglés", x = "Trigrama", y = "Frecuencia") +
+  theme_elegante() +                      # Aplica el tema elegante
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +  # Rota las etiquetas del eje x y elimina la leyenda
+  theme(axis.title.x = element_text(face = "bold"),   # Pone en negrita el título del eje x
+        axis.title.y = element_text(face = "bold"),   # Pone en negrita el título del eje y
+        plot.title = element_text(size = 14),         # Ajusta el tamaño del título del gráfico
+        plot.subtitle = element_text(size = 10))      # Ajusta el tamaño del subtítulo
+
+
+```
+
+```{r}
+
+
+
+# Define a list of unwanted words
+unwanted_words <- c("di", "yr", "doi", "org", "o", "p", "https", "res", 
+                    "claimant count", "std", "unstd", "be", "garciagómez", 
+                    "int", "macmillan", "ppi", "yes", "claimant", "count", "iec", "fjmd", "t", "pa", "creed", "univ", "connecticut", "garcíagómez", "sjpsagepubcom", "tue", "sep", "ii", "download", "iza", "e", "ects", "jstor", "ltd")
+
+# Tokenize the text into bigrams
+bigrams <- cleaned_text %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Separate the bigrams into two columns
+bigrams_separated <- bigrams %>%
+  separate(bigram, into = c("word1", "word2"), sep = " ")
+
+# Filter out unwanted words
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% unwanted_words & !word2 %in% unwanted_words)
+
+# Count the frequency of each bigram
+bigram_counts <- bigrams_filtered %>%
+  count(word1, word2, sort = TRUE)
+
+# Filter to keep only the top 60 bigrams for visualization
+top_bigrams <- bigram_counts %>%
+  top_n(60, wt = n)
+
+# Create a graph object using igraph
+bigram_graph <- graph_from_data_frame(top_bigrams)
+
+# Plot the bigram network using ggraph
+set.seed(1234)
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), edge_width = 0.6, edge_colour = "red3",  # Change color to "darkgray"
+                 arrow = arrow(type = "closed", length = unit(0.185, "inches"))) +
+  geom_node_point(size = 5, color = "darkolivegreen3") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +
+  theme_void() +
+  labs(title = "Unemployment and MH: Literatura en inglés", 
+       subtitle = "Top 60")
+
+# Tokenize the text into trigrams
+trigrams <- cleaned_text %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3)
+
+# Separate the trigrams into three columns
+trigrams_separated <- trigrams %>%
+  separate(trigram, into = c("word1", "word2", "word3"), sep = " ")
+
+# Filter out unwanted words
+trigrams_filtered <- trigrams_separated %>%
+  filter(!word1 %in% unwanted_words & !word2 %in% unwanted_words & !word3 %in% unwanted_words)
+
+# Count the frequency of each trigram
+trigram_counts <- trigrams_filtered %>%
+  count(word1, word2, word3, sort = TRUE)
+
+# Filter to keep only the top 60 trigrams for visualization
+top_trigrams <- trigram_counts %>%
+  top_n(60, wt = n)
+
+# Create a graph object using igraph
+trigram_graph <- graph_from_data_frame(top_trigrams, directed = TRUE)
+
+# Plot the trigram network using ggraph with kk layout
+set.seed(1234)
+ggraph(trigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), edge_width = 0.6, 
+                 arrow = arrow(type = "closed", length = unit(0.185, "inches")), 
+                 edge_colour = "sienna") +  # Change color to "darkgray"
+  geom_node_point(size = 5, color = "steelblue3") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +
+  theme_void() +
+  labs(title = "Unemployment and MH: Literatura en inglés", 
+       subtitle = "Top 60")
+
+```
+
+```{r}
+
+# Función para crear matriz de concurrencia
+create_cooccurrence_matrix <- function(dtm) {
+  dtm_matrix <- as.matrix(dtm)
+  term_matrix <- t(dtm_matrix) %*% dtm_matrix
+  term_matrix[lower.tri(term_matrix, diag = TRUE)] <- 0
+  term_matrix
+}
+
+# Crear la matriz de concurrencia
+cooccurrence_matrix <- create_cooccurrence_matrix(dtm)
+
+# Convertir la matriz de concurrencia en un dataframe
+cooccurrence_df <- as.data.frame(as.table(cooccurrence_matrix))
+colnames(cooccurrence_df) <- c("term1", "term2", "frequency")
+
+# Filtrar términos con concurrencia baja y eliminar caracteres no deseados
+cooccurrence_df <- cooccurrence_df %>%
+  filter(frequency > 1500) %>%
+  filter(!term1 %in% c("–", "’", "‘", "−", "⁎") & !term2 %in% c("–", "’", "‘", "−", "⁎"))
+
+# Crear un grafo a partir de la matriz de concurrencia
+cooccurrence_graph <- graph_from_data_frame(cooccurrence_df, directed = FALSE)
+
+# Aumentar la transparencia de las líneas y ajustar el tamaño del grafo
+set.seed(175)  # Asegura la reproducibilidad
+ggraph(cooccurrence_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = frequency, edge_width = frequency), color = "pink3", show.legend = TRUE) +
+  geom_node_point(color = "springgreen3", size = 4) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +  # Usar repel para mejorar la distribución de etiquetas
+  scale_edge_width_continuous(name = "n") +
+  scale_edge_alpha_continuous(name = "n") +
+  theme_void() +
+  labs(title = "Unemployment and MH: Literatura en inglés", 
+       subtitle = "Frecuencia > 1500") +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        plot.subtitle = element_text(size = 10),
+        plot.caption = element_text(size = 8, hjust = 1))
+
+
+
+```
+
