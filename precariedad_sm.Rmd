@@ -1,0 +1,451 @@
+---
+title: "precariedad_sm"
+author: "Jorge Céspedes Rico"
+date: "2024-05-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pdftools)
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(topicmodels)
+library(textstem)
+library(dplyr)
+library(tidyr)
+library(tidytext)
+library(igraph)
+library(ggraph)
+library(cluster)
+library(factoextra)
+library(Rtsne)
+library(viridis)
+```
+
+```{r}
+# Tema personalizado para ggplot2
+theme_elegante <- function(base_size = 10,
+                           base_family = "Raleway"
+) {
+  color.background <- "#FFFFFF" # Fondo del gráfico
+  color.grid.major <- "#D9D9D9" # Líneas de la cuadrícula
+  color.axis.text <- "#666666" # Texto del eje
+  color.axis.title <- "#666666" # Título del eje
+  color.title <- "#666666" # Título principal
+  color.subtitle <- "#666666" # Subtítulo
+  strip.background.color <- '#9999CC' # Fondo de la franja
+  
+  ret <- theme_bw(base_size=base_size) +
+    # Establecer el color de fondo del panel
+    theme(panel.background=element_rect(fill=color.background, color=color.background)) +
+    theme(plot.background=element_rect(fill=color.background, color=color.background)) +
+    theme(panel.border=element_rect(color=color.background)) +
+    # Formato de la cuadrícula
+    theme(panel.grid.major=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+    theme(panel.grid.minor=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+    theme(axis.ticks=element_blank()) +
+    # Formato de la leyenda
+    theme(legend.position="none") +
+    theme(legend.background = element_rect(fill=color.background)) +
+    theme(legend.text = element_text(size=base_size-3,color=color.axis.title, family = base_family)) +
+    theme(strip.text.x = element_text(size=base_size,color=color.background, family = base_family)) +
+    theme(strip.text.y = element_text(size=base_size,color=color.background, family = base_family)) +
+    theme(strip.background = element_rect(fill = "grey70", colour = NA)) +
+    theme(plot.title=element_text(color=color.title, 
+                                  size=20, 
+                                  vjust=1.25, 
+                                  family=base_family, 
+                                  hjust = 0.5
+    )) +
+    theme(plot.subtitle=element_text(color=color.subtitle, size=base_size+2, family = base_family,  hjust = 0.5))  +
+    theme(axis.text.x=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+    theme(axis.text.y=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+    theme(text=element_text(size=base_size, color=color.axis.text, family = base_family)) +
+    theme(axis.title.x=element_text(size=base_size+2,color=color.axis.title, vjust=0, family = base_family)) +
+    theme(axis.title.y=element_text(size=base_size+2,color=color.axis.title, vjust=1.25, family = base_family)) +
+    theme(plot.caption=element_text(size=base_size-2,color=color.axis.title, vjust=1.25, family = base_family)) +
+    # Formato de la leyenda
+    theme(legend.text=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+    theme(legend.title=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+    theme(legend.key=element_rect(colour = color.background, fill = color.background)) +
+    theme(legend.position="bottom", 
+          legend.box = "horizontal", 
+          legend.title = element_blank(),
+          legend.key.width = unit(.75, "cm"),
+          legend.key.height = unit(.75, "cm"),
+          legend.spacing.x = unit(.25, 'cm'),
+          legend.spacing.y = unit(.25, 'cm'),
+          legend.margin = margin(t=0, r=0, b=0, l=0, unit="cm")) +
+    # Márgenes del gráfico
+    theme(plot.margin = unit(c(.5, .5, .5, .5), "cm"))
+  
+  ret
+}
+```
+
+```{r}
+# Listar todos los archivos PDF en el directorio de trabajo
+files <- list.files(pattern = "pdf$")
+files
+
+# Aplicar la función pdf_text a cada archivo PDF
+precariedad <- lapply(files, pdf_text)
+
+# Combinar todos los textos en un único vector de caracteres
+precariedad_text <- unlist(precariedad)
+
+# Crear un corpus de texto a partir del texto extraído
+corpus <- Corpus(VectorSource(precariedad_text))
+```
+
+```{r}
+# Limpiar los datos de texto
+additional_stopwords <- c("et al", "o o", "p p", "por ciento", "https doi", "doi org", "https doi org", "ser ser ser", "t t t", "sí sí sí", "año edad edad", "o o o", "lad claimant count")
+clean_corpus <- corpus %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("spanish"), additional_stopwords)) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(content_transformer(lemmatize_strings))
+```
+
+```{r}
+# Crear una matriz de términos del documento (DTM)
+dtm <- DocumentTermMatrix(clean_corpus)
+```
+
+```{r}
+# Calcular TF-IDF
+tfidf <- weightTfIdf(dtm)
+tfidf_matrix <- as.matrix(tfidf)
+
+# Calcular la suma de TF-IDF para cada término
+top_terms <- sort(colSums(tfidf_matrix), decreasing = TRUE)
+
+# Convertir a un data frame
+top_terms_df <- data.frame(term = names(top_terms), tfidf = top_terms)
+
+```
+
+
+```{r}
+# Filtrar términos específicos y aquellos que contienen "..." o "'" o "’"
+top_terms_df <- top_terms_df %>%
+  filter(!term %in% c("⁎", "−", "sí", "std", "unstd", "ref", "swb", "pwb", "almps", "–", "*", "𝖥","the", "and", "”", "“", "arbetslivsinstitutet", "núm", "literature", "", "hellgren", "work", "review", "health", "näswall","***", "∗∗∗")) %>%
+  filter(!grepl("\\.\\.\\.", term)) %>%  # Filtrar términos que contienen "..."
+  filter(!grepl("'", term)) %>%  # Filtrar términos que contienen "'"
+  filter(!grepl("’", term)) %>%  # Filtrar términos que contienen "’"
+  arrange(desc(tfidf)) %>%
+  head(15)
+
+# Imprimir el data frame resultante
+print(top_terms_df)
+
+# Plot de los términos principales por TF-IDF con una paleta de colores diferente
+ggplot(top_terms_df, aes(x = reorder(term, tfidf), y = tfidf, fill = term)) +
+  geom_bar(stat = "identity", color = "black") +
+  labs(title = "Top 11 términos: Precariedad y SM", subtitle = "Literatura en español", x = "Término", y = "TF-IDF") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1), 
+        axis.title.x = element_text(face = "bold"),  # Eje x en negrita
+        axis.title.y = element_text(face = "bold"),  # Eje y en negrita
+        legend.position = "none")
+
+top_terms_df
+
+```
+
+
+
+```{r}
+# Eliminar términos escasos para reducir el ruido y la dimensionalidad
+dtm_sparse <- removeSparseTerms(dtm, 0.99)
+dtm_sparse_matrix <- as.matrix(dtm_sparse)
+
+# Determinar el número óptimo de clusters usando el método del codo
+fviz_nbclust(dtm_sparse_matrix, kmeans, method = "wss")
+
+# Aplicar k-means clustering con un número óptimo de clusters (por ejemplo, k = 3)
+set.seed(1234)
+num_clusters <- 3
+kmeans_result <- kmeans(dtm_sparse_matrix, centers = num_clusters, nstart = 25)
+
+# Añadir las asignaciones de clusters a los datos originales
+precariedad_clusters <- data.frame(text = precariedad_text, cluster = kmeans_result$cluster)
+
+# Imprimir el resultado del clustering
+print(precariedad_clusters)
+
+# Visualizar el resultado del clustering usando PCA
+pca <- prcomp(dtm_sparse_matrix, scale. = TRUE)
+pca_data <- data.frame(pca$x, cluster = as.factor(kmeans_result$cluster))
+
+ggplot(pca_data, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point() +
+  labs(title = "PCA de Clústeres de Documentos", x = "Componente Principal 1", y = "Componente Principal 2") +
+  theme_minimal()
+
+# Visualizar el resultado del clustering usando t-SNE
+# Eliminar duplicados antes de aplicar t-SNE
+dtm_sparse_matrix_unique <- unique(dtm_sparse_matrix)
+
+set.seed(1234)
+tsne_result <- Rtsne(dtm_sparse_matrix_unique, dims = 2, perplexity = 5, verbose = TRUE, max_iter = 500)
+tsne_data <- data.frame(tsne_result$Y, cluster = as.factor(kmeans_result$cluster[match(rownames(dtm_sparse_matrix_unique), rownames(dtm_sparse_matrix))]))
+colnames(tsne_data) <- c("Dim1", "Dim2", "cluster")
+
+ggplot(tsne_data, aes(x = Dim1, y = Dim2, color = cluster)) +
+  geom_point() +
+  labs(title = "t-SNE de Clústeres de Documentos", x = "Dimensión 1", y = "Dimensión 2") +
+  theme_minimal()
+```
+
+```{r}
+# Crear una nube de palabras
+wordcloud(words = top_terms_df$term, 
+          freq = top_terms_df$tfidf, 
+          min.freq = 5, 
+          max.words = 100, 
+          random.order = FALSE, 
+          colors = viridis(100))  # Utilizar la paleta viridis con 100 colores
+```
+
+```{r}
+library(ggwordcloud)
+# Combine all cleaned text into a single data frame
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Remove unwanted characters (".", "...", "'", "’", "s", "·", "“”, etc.)
+cleaned_text$text <- gsub("[\\.]{2,}", "", cleaned_text$text)  # Remove multiple dots
+cleaned_text$text <- gsub("'", "", cleaned_text$text)
+cleaned_text$text <- gsub("’", "", cleaned_text$text)
+cleaned_text$text <- gsub("·", "", cleaned_text$text)
+cleaned_text$text <- gsub("and|the|of|be|j’’|“|”", "", cleaned_text$text)  # Remove specific words and characters
+cleaned_text$text <- gsub("[[:punct:]]", "", cleaned_text$text)  # Remove punctuation
+cleaned_text$text <- gsub("\\s+", " ", cleaned_text$text)  # Remove extra whitespace
+
+# Tokenize the text
+words <- unlist(strsplit(cleaned_text$text, " "))
+
+# Remove empty strings and unwanted short words from the tokenized words
+unwanted_words <- c("p", "o", "ob", "s", "j", "t", "in", "núm", "pág", "así", "health", "work", "si", "to", "tal", "ser", "job", "insecurity")
+words <- words[words != "" & !words %in% unwanted_words]
+
+# Create word frequency table
+word_freq <- table(words)
+word_freq_df <- as.data.frame(word_freq)
+colnames(word_freq_df) <- c("word", "freq")
+
+# Filter words with a minimum frequency
+word_freq_df <- word_freq_df[word_freq_df$freq >= 50,]
+
+# Plot word cloud using ggwordcloud
+ggplot(word_freq_df, aes(label = word, size = freq, color = freq)) +
+  geom_text_wordcloud_area(rm_outside = TRUE) +  # Ensure words don't overlap and stay within bounds
+  scale_size_area(max_size = 30) +
+  scale_color_viridis_c() +  # Set color scheme for the text
+  theme_elegante() +
+  labs(title = "Precariedad y salud mental: lit. en ESP", 
+       subtitle = "Mínima frecuencia: 50") +
+  theme(
+    plot.title = element_text(size = 20, hjust = 0.5, vjust = 1, face = "bold"),  # Centered title at the top
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "darkgrey"),  # Centered subtitle below the title
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+```
+
+
+
+```{r}
+ #Combinar todo el texto limpiado en un único marco de datos
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Tokenizar el texto en bigramas
+bigrams <- cleaned_text %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Contar la frecuencia de cada bigrama
+bigram_counts <- bigrams %>%
+  count(bigram, sort = TRUE)
+
+# Filtrar los bigramas no deseados
+bigram_counts_filtered <- bigram_counts %>%
+  filter(!bigram %in% c("p p", "https doi", "doi org", "t t", "o o", "be be", "𝐊 𝐊", "of the", "núm extraordinariofebrero", "rejie nueva", "mental health"))
+
+# Filtrar para mantener solo los 20 bigramas más frecuentes
+top_bigrams <- bigram_counts_filtered %>%
+  top_n(20, wt = n)
+
+# Visualizar los 20 bigramas más frecuentes sin leyenda
+ggplot(top_bigrams, aes(x = reorder(bigram, n), y = n, fill = reorder(bigram, n))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 20 bigramas: Precariedad y SM", subtitle = "Literatura en español", x = "Trigrama", y = "Frecuencia") +
+  theme_elegante() +                      # Aplicar el tema elegante
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +  # Rotar las etiquetas del eje x y eliminar la leyenda
+  theme(axis.title.x = element_text(face = "bold"),   # Poner en negrita el título del eje x
+        axis.title.y = element_text(face = "bold"))   # Poner en negrita el título del eje y
+#Top 20 bigramas: Precariedad y SM, subtitle = "Literatura en español"
+# Tokenizar el texto en trigramas
+trigrams <- cleaned_text %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3)
+
+# Contar la frecuencia de cada trigram
+trigram_counts <- trigrams %>%
+  count(trigram, sort = TRUE)
+
+# Filtrar los trigramas no deseados
+trigram_counts_filtered <- trigram_counts %>%
+  filter(!trigram %in% c("https doi org", "be be be", "yes yes yes", "yr yr yr", "p p p", "age age age", "ppi age year", "t t t", "j environ res", "int j environ", "environ res public", "claimant count rate", "res public health", "publisher ltd journal", "macmillan publisher ltd", "ltd journal public", "claimant count ratw", "soc sci med", "download ilrsagepubcom howard", "howard univ undergrad", "ilrsagepubcom howard univ", "undergrad library march", 			
+"univ undergrad library", "q q q", "be bubonya labour", "tennessee state university", "state university june", "ilrsagepubcom east tennessee", "download ilrsagepubcom east", "bubonya labour economics", "ilrsagepubcom east tennessee", "east tennessee state", "richard layard economics", "labor january wolizaorg", "época núm", "núm extraordinariofebrero", "época núm", "of the", "rejie nueva época", "nueva época núm", "rejie nueva época", "época núm extraordinariofebrero", "raúl porras velásquez", "néstor raúl porras", "susana rodríguez escanciano", "apuntes cuestiones pendientes", "of the", "apunte cuestiones pendientes"))
+
+# Filtrar para mantener solo los 20 trigramas más frecuentes
+top_trigrams <- trigram_counts_filtered %>%
+  top_n(20, wt = n)
+
+ggplot(top_trigrams, aes(x = reorder(trigram, n), y = n, fill = reorder(trigram, n))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 20 trigramas: Precariedad y SM", subtitle = "Literatura en español", x = "Trigrama", y = "Frecuencia") +
+  theme_elegante() +                      # Aplicar el tema elegante
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +  # Rotar las etiquetas del eje x y eliminar la leyenda
+  theme(axis.title.x = element_text(face = "bold"),   # Poner en negrita el título del eje x
+        axis.title.y = element_text(face = "bold"))   # Poner en negrita el título del eje y
+
+```
+
+
+
+```{r}
+# Lista de palabras no deseadas
+unwanted_words <- c("di", "yr", "doi", "org", "o", "p", "https", "res", 
+                    "claimant count", "std", "unstd", "be", "garciagómez", 
+                    "int", "macmillan", "ppi", "yes", "claimant", "count", "iec", "fjmd", "t", "de", "witte", "j", "plos", "one",
+                    "𝐊", "soc", "sci", "download", "ilrsagepubcom", "howard", "univ", "undergrad", "ilrsagepubcom", "httpdoiorgjournalpone", "wiley", "kk", "q", "wiley", "john", "copyright", "sarti", "zella", "ltd", "bubonya", "tennessee", "east", "ilrsagepubcom", "june", "richard", "e", "layard", "n", "joan", "proto", "eugenio",
+                    "esteban", "agulló", "tomás", "josé", "antonio", "llosa", "miguel", "arena", "martínez", "departamento", "psicologíasociología", "universidad", "oviedo", "estomasuniovies", "resúmen", "trabajo", "desarrolla", "of", "ic", "nº", "rp", "vol", "health", "susana", "rodríguez", "escanciano", "extraordinariofebrero", "pág", "núm", "gac", "sanit", "journal", "of", "in", "the", "néstor", "raúl", "porras", "velásquez", "ntp", "cortès", "molina", "navarrete", "s", "agullótomás", "llosa", "ref",
+                    "diciembre", "julio", "rejie", "sein", "goñi", "tirant", "alarcón", "caracuel", "i", "mercader", "uguina")
+
+# Convertir el texto limpio en un data frame para tidytext
+cleaned_text <- data.frame(text = sapply(clean_corpus, as.character), stringsAsFactors = FALSE)
+
+# Tokenizar el texto en bigramas
+bigrams <- cleaned_text %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Separar los bigramas en dos columnas
+bigrams_separated <- bigrams %>%
+  separate(bigram, into = c("word1", "word2"), sep = " ")
+
+# Filtrar las palabras no deseadas
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% unwanted_words & !word2 %in% unwanted_words)
+
+# Contar la frecuencia de cada bigrama
+bigram_counts <- bigrams_filtered %>%
+  count(word1, word2, sort = TRUE)
+
+# Filtrar para mantener solo los 60 principales bigramas para visualización
+top_bigrams <- bigram_counts %>%
+  top_n(40, wt = n)
+
+# Crear un objeto gráfico usando igraph
+bigram_graph <- graph_from_data_frame(top_bigrams)
+
+# Graficar la red de bigramas usando ggraph
+set.seed(1234)
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), edge_width = 0.5, edge_colour = "red3",  # Cambio de color a "darkgray"
+                 arrow = arrow(type = "closed", length = unit(0.2, "inches"))) +
+  geom_node_point(size = 5, color = "darkolivegreen3") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +
+  theme_void() +
+  labs(title = "Precariedad y SM: literatura en español", 
+       subtitle = "Top 40")
+
+# Tokenizar el texto en trigramas
+trigrams <- cleaned_text %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3)
+
+# Separar los trigramas en tres columnas
+trigrams_separated <- trigrams %>%
+  separate(trigram, into = c("word1", "word2", "word3"), sep = " ")
+
+# Filtrar las palabras no deseadas
+trigrams_filtered <- trigrams_separated %>%
+  filter(!word1 %in% unwanted_words & !word2 %in% unwanted_words & !word3 %in% unwanted_words)
+
+# Contar la frecuencia de cada trigrama
+trigram_counts <- trigrams_filtered %>%
+  count(word1, word2, word3, sort = TRUE)
+
+# Filtrar para mantener solo los 60 principales trigramas para visualización
+top_trigrams <- trigram_counts %>%
+  top_n(40, wt = n)
+
+# Crear un objeto gráfico usando igraph
+trigram_graph <- graph_from_data_frame(top_trigrams, directed = TRUE)
+
+# Graficar la red de trigramas usando ggraph
+set.seed(1234)
+ggraph(trigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), edge_width = 0.5, 
+                 arrow = arrow(type = "closed", length = unit(0.2, "inches")), 
+                 edge_colour = "sienna") +  # Cambio de color a "darkgray"
+  geom_node_point(size = 5, color = "steelblue3") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +
+  theme_void() +
+  labs(title = "Precariedad y SM: literatura en español", 
+       subtitle = "Top 40")
+
+```
+
+
+```{r}
+# Función para crear matriz de concurrencia
+create_cooccurrence_matrix <- function(dtm) {
+  dtm_matrix <- as.matrix(dtm)
+  term_matrix <- t(dtm_matrix) %*% dtm_matrix
+  term_matrix[lower.tri(term_matrix, diag = TRUE)] <- 0
+  term_matrix
+}
+
+# Crear la matriz de concurrencia
+cooccurrence_matrix <- create_cooccurrence_matrix(dtm)
+
+# Convertir la matriz de concurrencia en un dataframe
+cooccurrence_df <- as.data.frame(as.table(cooccurrence_matrix))
+colnames(cooccurrence_df) <- c("term1", "term2", "frequency")
+
+# Filtrar términos con concurrencia baja y eliminar caracteres no deseados
+cooccurrence_df <- cooccurrence_df %>%
+  filter(frequency > 500) %>%
+  filter(!term1 %in% c("–", "’", "‘", "−", "⁎", "“", "”", "𝖥", "∗∗∗", "∗∗", "≥", "the", "health", "employment", "and", "así", "pág", "núm") & 
+         !term2 %in% c("–", "’", "‘", "−", "⁎", "“", "”", "𝖥", "∗∗∗", "∗∗", "≥", "the", "health", "employment", "and", "así", "pág", "núm"))
+
+# Crear un grafo a partir de la matriz de concurrencia
+cooccurrence_graph <- graph_from_data_frame(cooccurrence_df, directed = FALSE)
+
+# Aumentar la transparencia de las líneas y ajustar el tamaño del grafo
+set.seed(175)  # Asegura la reproducibilidad
+ggraph(cooccurrence_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = frequency, edge_width = frequency), color = "pink3", show.legend = TRUE) +
+  geom_node_point(color = "springgreen3", size = 4) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3.25) +  # Usar repel para mejorar la distribución de etiquetas
+  scale_edge_width_continuous(name = "n") +
+  scale_edge_alpha_continuous(name = "n") +
+  theme_void() +
+  labs(title = "Precariedad y SM: literatura en español", 
+       subtitle = "Frecuencia > 500") +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        plot.subtitle = element_text(size = 10),
+        plot.caption = element_text(size = 8, hjust = 1))
+
+```
+
